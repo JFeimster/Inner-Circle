@@ -12,8 +12,10 @@ import {
   AlertCircle,
   MessageSquare,
   ShieldCheck,
+  Lock,
 } from 'lucide-react';
 import { motion } from 'motion/react';
+import { getVerifiedAccessToken } from '../lib/supabase';
 
 interface StudioPlan {
   id: 'onboarding' | 'producer' | 'inner_circle';
@@ -37,14 +39,18 @@ interface UsageEntry {
   id: number;
   action_type: 'chat' | 'image' | 'file';
   credits_used: number;
+  status: 'reserved' | 'committed' | 'refunded';
   prompt_summary: string;
+  refund_reason?: string | null;
   created_at: string;
 }
 
 interface AccountSnapshot {
+  userId: string;
   email: string;
   name: string;
-  role: string;
+  role: 'member' | 'admin';
+  membershipStatus: 'active' | 'suspended' | 'revoked';
   plan: StudioPlan;
   bonusCredits: number;
   monthlyAllowance: number;
@@ -81,26 +87,34 @@ interface GeneratedFile {
 }
 
 interface AIStudioPageProps {
-  defaultEmail: string;
-  defaultName: string;
+  accessToken: string | null;
+  onRequireSignIn: () => void;
+  onSignOut: () => void;
 }
 
 type StudioTab = 'chat' | 'image' | 'file' | 'pricing';
 
-const STORAGE_EMAIL_KEY = 'mc_studio_agent_email';
+function createIdempotencyKey(prefix: string): string {
+  const randomPart =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  return `${prefix}-${randomPart}`;
+}
 
-export default function AIStudioPage({ defaultEmail, defaultName }: AIStudioPageProps) {
+export default function AIStudioPage({
+  accessToken,
+  onRequireSignIn,
+  onSignOut,
+}: AIStudioPageProps) {
   const [activeTab, setActiveTab] = useState<StudioTab>('chat');
   const [loadingAccount, setLoadingAccount] = useState(true);
   const [account, setAccount] = useState<AccountSnapshot | null>(null);
   const [plans, setPlans] = useState<StudioPlan[]>([]);
   const [topupPacks, setTopupPacks] = useState<TopupPack[]>([]);
   const [creditCosts, setCreditCosts] = useState({ chat: 1, file: 2, image: 5 });
+  const [aiLiveEnabled, setAiLiveEnabled] = useState(false);
 
-  // Sign-in gate state
-  const [loginEmail, setLoginEmail] = useState(defaultEmail);
-  const [loginName, setLoginName] = useState(defaultName);
-  const [authLoading, setAuthLoading] = useState(false);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
   const [statusNote, setStatusNote] = useState<string | null>(null);
 
@@ -122,26 +136,41 @@ export default function AIStudioPage({ defaultEmail, defaultName }: AIStudioPage
   const [generatedFiles, setGeneratedFiles] = useState<GeneratedFile[]>([]);
   const [copiedFileId, setCopiedFileId] = useState<string | null>(null);
 
-  // Plan update loading
-  const [updatingPlanId, setUpdatingPlanId] = useState<string | null>(null);
-
-  const getHeaders = (emailOverride?: string): Record<string, string> => {
-    const saved = emailOverride ?? account?.email ?? localStorage.getItem(STORAGE_EMAIL_KEY) ?? '';
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (saved) headers['x-agent-email'] = saved;
+  const resolveBearerHeaders = async (idempotencyKey?: string): Promise<Record<string, string> | null> => {
+    const token = (await getVerifiedAccessToken()) || accessToken;
+    if (!token) return null;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    };
+    if (idempotencyKey) {
+      headers['Idempotency-Key'] = idempotencyKey;
+    }
     return headers;
   };
 
-  const fetchAccount = async (emailOverride?: string) => {
+  const fetchAccount = async () => {
+    setLoadingAccount(true);
+    setErrorBanner(null);
     try {
-      const res = await fetch('/api/studio/account', {
-        headers: getHeaders(emailOverride),
-        credentials: 'include',
-      });
+      const headers = await resolveBearerHeaders();
+      if (!headers) {
+        setAccount(null);
+        return;
+      }
+
+      const res = await fetch('/api/studio/account', { headers });
       const data = await res.json();
+      if (!res.ok) {
+        setAccount(null);
+        setErrorBanner(data.error || 'Verified Inner Circle membership is required.');
+        return;
+      }
+
       setPlans(data.plans ?? []);
       setTopupPacks(data.topupPacks ?? []);
       if (data.creditCosts) setCreditCosts(data.creditCosts);
+      setAiLiveEnabled(Boolean(data.aiLiveEnabled));
       setAccount(data.account ?? null);
     } catch {
       setErrorBanner('Unable to reach the Moonshine AI Studio server.');
@@ -151,44 +180,8 @@ export default function AIStudioPage({ defaultEmail, defaultName }: AIStudioPage
   };
 
   useEffect(() => {
-    const storedEmail = localStorage.getItem(STORAGE_EMAIL_KEY) || undefined;
-    fetchAccount(storedEmail);
-  }, []);
-
-  const handleSignIn = async (emailToUse: string, nameToUse: string) => {
-    setErrorBanner(null);
-    setStatusNote(null);
-    setAuthLoading(true);
-    try {
-      const res = await fetch('/api/studio/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ email: emailToUse, name: nameToUse }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setErrorBanner(data.error || 'Sign-in failed.');
-        return;
-      }
-      localStorage.setItem(STORAGE_EMAIL_KEY, data.account.email);
-      setAccount(data.account);
-      setStatusNote(`Signed in as ${data.account.email}. Server-side quota enforcement is active.`);
-    } catch {
-      setErrorBanner('Could not sign in to AI Studio.');
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const handleSignOut = async () => {
-    localStorage.removeItem(STORAGE_EMAIL_KEY);
-    await fetch('/api/studio/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
-    setAccount(null);
-    setChatMessages([]);
-    setStatusNote(null);
-    setErrorBanner(null);
-  };
+    fetchAccount();
+  }, [accessToken]);
 
   const handleSendChat = async (promptOverride?: string) => {
     const text = (promptOverride ?? chatInput).trim();
@@ -196,21 +189,25 @@ export default function AIStudioPage({ defaultEmail, defaultName }: AIStudioPage
     setErrorBanner(null);
     setStatusNote(null);
 
+    const headers = await resolveBearerHeaders(createIdempotencyKey('chat'));
+    if (!headers) {
+      setErrorBanner('Your verified session expired. Please sign in again.');
+      return;
+    }
+
     const userMsg: ChatMessage = {
       id: `u-${Date.now()}`,
       role: 'user',
       text,
     };
-    const nextHistory = [...chatMessages, userMsg];
-    setChatMessages(nextHistory);
+    setChatMessages((prev) => [...prev, userMsg]);
     setChatInput('');
     setChatSending(true);
 
     try {
       const res = await fetch('/api/studio/chat', {
         method: 'POST',
-        headers: getHeaders(),
-        credentials: 'include',
+        headers,
         body: JSON.stringify({
           message: text,
           history: chatMessages.map((m) => ({ role: m.role, text: m.text })),
@@ -239,13 +236,19 @@ export default function AIStudioPage({ defaultEmail, defaultName }: AIStudioPage
     if (!prompt || imageGenerating || !account) return;
     setErrorBanner(null);
     setStatusNote(null);
+
+    const headers = await resolveBearerHeaders(createIdempotencyKey('image'));
+    if (!headers) {
+      setErrorBanner('Your verified session expired. Please sign in again.');
+      return;
+    }
+
     setImageGenerating(true);
 
     try {
       const res = await fetch('/api/studio/image', {
         method: 'POST',
-        headers: getHeaders(),
-        credentials: 'include',
+        headers,
         body: JSON.stringify({ prompt, aspectRatio }),
       });
       const data = await res.json();
@@ -265,7 +268,7 @@ export default function AIStudioPage({ defaultEmail, defaultName }: AIStudioPage
         ...prev,
       ]);
       setImagePrompt('');
-      setStatusNote(`Image generated (${creditCosts.image} credits deducted).`);
+      setStatusNote(`Image generated (${creditCosts.image} credits committed).`);
     } catch {
       setErrorBanner('Network error contacting Image Studio.');
     } finally {
@@ -279,13 +282,19 @@ export default function AIStudioPage({ defaultEmail, defaultName }: AIStudioPage
     if (!prompt || fileGenerating || !account) return;
     setErrorBanner(null);
     setStatusNote(null);
+
+    const headers = await resolveBearerHeaders(createIdempotencyKey('file'));
+    if (!headers) {
+      setErrorBanner('Your verified session expired. Please sign in again.');
+      return;
+    }
+
     setFileGenerating(true);
 
     try {
       const res = await fetch('/api/studio/file', {
         method: 'POST',
-        headers: getHeaders(),
-        credentials: 'include',
+        headers,
         body: JSON.stringify({ prompt, format: fileFormat }),
       });
       const data = await res.json();
@@ -302,37 +311,11 @@ export default function AIStudioPage({ defaultEmail, defaultName }: AIStudioPage
         ...prev,
       ]);
       setFilePrompt('');
-      setStatusNote(`Created ${data.file.filename} (${creditCosts.file} credits deducted).`);
+      setStatusNote(`Created ${data.file.filename} (${creditCosts.file} credits committed).`);
     } catch {
       setErrorBanner('Network error contacting File Creator.');
     } finally {
       setFileGenerating(false);
-    }
-  };
-
-  const handlePlanUpdate = async (payload: { planId?: string; topupId?: string }, label: string) => {
-    if (!account) return;
-    setErrorBanner(null);
-    setStatusNote(null);
-    setUpdatingPlanId(payload.planId ?? payload.topupId ?? 'plan');
-    try {
-      const res = await fetch('/api/studio/plan', {
-        method: 'POST',
-        headers: getHeaders(),
-        credentials: 'include',
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setErrorBanner(data.error || 'Could not update plan.');
-        return;
-      }
-      setAccount(data.account);
-      setStatusNote(`${label} applied to ${data.account.email}.`);
-    } catch {
-      setErrorBanner('Network error updating plan.');
-    } finally {
-      setUpdatingPlanId(null);
     }
   };
 
@@ -385,13 +368,13 @@ export default function AIStudioPage({ defaultEmail, defaultName }: AIStudioPage
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div className="max-w-2xl space-y-2">
           <p className="text-xs font-medium text-gold tracking-wide">
-            Server-Gated Member Studio · Credit &amp; Daily Quota Protection
+            Verified Member Studio · Atomic Credit Reservations &amp; Daily Guardrails
           </p>
           <h1 className="text-4xl md:text-5xl font-display font-light text-white text-balance">
             Moonshine <span className="text-gold italic">AI Studio</span>
           </h1>
           <p className="text-sm md:text-base text-white/60 font-light">
-            Generate luxury client scripts, branded visuals, and downloadable deliverables under per-member credit allowances and daily spend caps.
+            Generate executive scripts, branded visuals, and downloadable deliverables under server-enforced credit reservations with automatic refunds on failed generations.
           </p>
         </div>
 
@@ -399,100 +382,57 @@ export default function AIStudioPage({ defaultEmail, defaultName }: AIStudioPage
           <div className="flex items-center gap-4 text-xs text-white/70 shrink-0">
             <div className="text-right">
               <p className="font-medium text-white">{account.name}</p>
-              <p className="text-white/50">{account.email}</p>
+              <p className="text-white/50">
+                {account.email} · {account.role === 'admin' ? 'Admin' : 'Member'}
+              </p>
             </div>
             <button
               type="button"
-              onClick={handleSignOut}
+              onClick={onSignOut}
               className="px-4 py-2 rounded-full border border-white/15 hover:border-gold/50 hover:text-gold transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0"
             >
               <LogOut size={13} />
-              Switch Member
+              Sign Out
             </button>
           </div>
         )}
       </div>
 
-      {/* Member Sign-In Gate */}
+      {/* Verified Session Gate */}
       {!account ? (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
           <section className="lg:col-span-7 glass rounded-3xl p-8 md:p-10 border border-white/10 space-y-6">
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-xs font-medium text-gold">
                 <ShieldCheck size={15} />
-                Member Account Required
+                Verified Supabase Auth Required
               </div>
               <h2 className="text-2xl md:text-3xl font-display text-white">
-                Sign in to unlock your credit allowance
+                Sign in with your verified Inner Circle membership
               </h2>
               <p className="text-sm text-white/60 leading-relaxed">
-                Every Moonshine Capital agent receives an isolated monthly credit balance and daily guardrail enforced on the server so studio usage stays predictable and auditable.
+                AI Studio verifies your authenticated Supabase JWT and active invitation-backed membership on the server before reserving credits.
               </p>
             </div>
 
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSignIn(loginEmail, loginName);
-              }}
-              className="space-y-4"
+            {errorBanner && (
+              <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-xs text-red-200 flex items-center gap-2">
+                <AlertCircle size={15} className="shrink-0" />
+                <span>{errorBanner}</span>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={onRequireSignIn}
+              className="px-6 py-3 rounded-full gold-gradient text-elite-black text-xs font-semibold tracking-wide hover:opacity-95 transition-opacity whitespace-nowrap"
             >
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <label className="space-y-1.5 block">
-                  <span className="text-xs text-white/60">Agent Email</span>
-                  <input
-                    type="email"
-                    value={loginEmail}
-                    onChange={(e) => setLoginEmail(e.target.value)}
-                    placeholder="agent@moonshinecapital.com"
-                    required
-                    className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/15 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-gold"
-                  />
-                </label>
-                <label className="space-y-1.5 block">
-                  <span className="text-xs text-white/60">Display Name</span>
-                  <input
-                    type="text"
-                    value={loginName}
-                    onChange={(e) => setLoginName(e.target.value)}
-                    placeholder="Jason Feimster"
-                    className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/15 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-gold"
-                  />
-                </label>
-              </div>
-
-              {errorBanner && (
-                <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-xs text-red-200 flex items-center gap-2">
-                  <AlertCircle size={15} className="shrink-0" />
-                  <span>{errorBanner}</span>
-                </div>
-              )}
-
-              <div className="flex flex-wrap items-center gap-3 pt-2">
-                <button
-                  type="submit"
-                  disabled={authLoading}
-                  className="px-6 py-2.5 rounded-full gold-gradient text-elite-black text-xs font-semibold tracking-wide hover:opacity-95 transition-opacity disabled:opacity-50 whitespace-nowrap"
-                >
-                  {authLoading ? 'Signing in...' : 'Continue to AI Studio'}
-                </button>
-                <button
-                  type="button"
-                  disabled={authLoading}
-                  onClick={() => handleSignIn('sarah.jenkins@moonshinecapital.com', 'Sarah Jenkins')}
-                  className="px-5 py-2.5 rounded-full border border-white/15 hover:border-white/35 text-xs text-white/75 hover:text-white transition-colors whitespace-nowrap"
-                >
-                  Test Separate Agent Quota
-                </button>
-              </div>
-            </form>
+              Open Verified Member Sign In
+            </button>
           </section>
 
           <section className="lg:col-span-5 glass rounded-3xl p-8 border border-white/10 space-y-5">
-            <h3 className="text-xl font-display text-white">Credit Pricing Overview</h3>
-            <p className="text-xs text-white/55 leading-relaxed">
-              Every action deducts transparent credits on the server before calling Gemini—eliminating uncontrolled spend.
-            </p>
+            <h3 className="text-xl font-display text-white">Credit Accounting Safeguards</h3>
             <div className="divide-y divide-white/10 text-sm">
               <div className="py-3.5 flex items-center justify-between">
                 <span className="text-white/80">Concierge Chat Turn</span>
@@ -508,12 +448,21 @@ export default function AIStudioPage({ defaultEmail, defaultName }: AIStudioPage
               </div>
             </div>
             <p className="text-xs text-white/45 pt-2">
-              New members start with 30 included credits per month (10/day guardrail).
+              Credits are reserved atomically per request with idempotency protection and refunded automatically if a generation fails.
             </p>
           </section>
         </div>
       ) : (
         <>
+          {!aiLiveEnabled && (
+            <div className="p-4 rounded-2xl bg-gold/10 border border-gold/30 text-xs text-white/85 flex items-center gap-3">
+              <Lock size={15} className="text-gold shrink-0" />
+              <span>
+                Live Gemini generation is paused in review mode. Any request attempt will safely reserve and automatically refund credits without incurring API charges.
+              </span>
+            </div>
+          )}
+
           {/* 4-Column Server-Enforced Quota Strip */}
           <section className="glass rounded-3xl border border-white/10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-white/10">
             <div className="p-6 space-y-1.5">
@@ -524,7 +473,7 @@ export default function AIStudioPage({ defaultEmail, defaultName }: AIStudioPage
               </p>
               <p className="text-xs text-white/45">
                 {account.bonusCredits > 0
-                  ? `Includes ${account.bonusCredits} top-up credits`
+                  ? `Includes ${account.bonusCredits} verified bonus credits`
                   : 'Resets monthly'}
               </p>
             </div>
@@ -577,7 +526,7 @@ export default function AIStudioPage({ defaultEmail, defaultName }: AIStudioPage
                 onClick={() => setActiveTab('pricing')}
                 className="text-xs font-medium text-gold hover:underline text-left"
               >
-                Manage Plan or Add Credits
+                View Tiers &amp; Usage Ledger
               </button>
             </div>
           </section>
@@ -621,7 +570,7 @@ export default function AIStudioPage({ defaultEmail, defaultName }: AIStudioPage
                 { id: 'chat', label: 'Concierge Chat', meta: `${creditCosts.chat} cr`, icon: MessageSquare },
                 { id: 'image', label: 'Image Studio', meta: `${creditCosts.image} cr`, icon: ImageIcon },
                 { id: 'file', label: 'File Creator', meta: `${creditCosts.file} cr`, icon: FileDown },
-                { id: 'pricing', label: 'Plans & Credits', meta: 'Pricing', icon: CreditCard },
+                { id: 'pricing', label: 'Plans & Credits', meta: 'Billing', icon: CreditCard },
               ] as const
             ).map((tab) => {
               const Icon = tab.icon;
@@ -658,15 +607,15 @@ export default function AIStudioPage({ defaultEmail, defaultName }: AIStudioPage
                         Executive Advisory Concierge
                       </h2>
                       <p className="text-sm text-white/55">
-                        Ask for luxury listing positioning, objection-handling scripts, investor outreach drafts, or Week 1–4 onboarding guidance. Each message uses {creditCosts.chat} credit.
+                        Ask for positioning scripts, objection handling, outreach drafts, or Week 1–4 onboarding guidance. Each message reserves {creditCosts.chat} credit atomically.
                       </p>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {[
                         'Draft a concise cold outreach email to a $10M+ commercial property owner.',
-                        'Give me 3 sharp responses when a luxury seller asks why Moonshine Capital.',
-                        'Build a 5-day follow-up cadence after my first property walkthrough.',
-                        'Outline talking points for a 15-minute discovery call with a family office.',
+                        'Give me 3 sharp responses when a prospect asks why Moonshine Capital.',
+                        'Build a 5-day follow-up cadence after my first discovery consultation.',
+                        'Outline talking points for a 15-minute discovery call with a business owner.',
                       ].map((suggestion) => (
                         <button
                           key={suggestion}
@@ -746,7 +695,7 @@ export default function AIStudioPage({ defaultEmail, defaultName }: AIStudioPage
                 <div className="space-y-1.5">
                   <h2 className="text-2xl font-display text-white">Brand Image Studio</h2>
                   <p className="text-xs text-white/55">
-                    Create bespoke editorial photography and marketing visuals for listings, social launches, or investor decks ({creditCosts.image} credits per image).
+                    Create bespoke editorial photography and marketing visuals for social launches or pitch decks ({creditCosts.image} credits per image).
                   </p>
                 </div>
 
@@ -756,7 +705,7 @@ export default function AIStudioPage({ defaultEmail, defaultName }: AIStudioPage
                     rows={4}
                     value={imagePrompt}
                     onChange={(e) => setImagePrompt(e.target.value)}
-                    placeholder="Twilight architectural photograph of a modern glass hillside estate overlooking the Pacific coast, warm interior gold lighting, editorial real estate magazine style..."
+                    placeholder="Twilight architectural photograph of a modern commercial advisory office overlooking the skyline, warm brass lighting, editorial style..."
                     required
                     className="w-full px-4 py-3 rounded-2xl bg-white/5 border border-white/15 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-gold resize-none"
                   />
@@ -813,7 +762,7 @@ export default function AIStudioPage({ defaultEmail, defaultName }: AIStudioPage
                   <div className="py-16 text-center space-y-2 border border-dashed border-white/10 rounded-2xl px-6">
                     <p className="text-sm text-white/65">No images generated yet.</p>
                     <p className="text-xs text-white/40">
-                      Describe a listing backdrop, social launch card, or event invitation on the left to generate a downloadable PNG.
+                      Describe a marketing backdrop, social launch card, or event invitation on the left to generate a downloadable PNG.
                     </p>
                   </div>
                 ) : (
@@ -899,7 +848,7 @@ export default function AIStudioPage({ defaultEmail, defaultName }: AIStudioPage
                     rows={4}
                     value={filePrompt}
                     onChange={(e) => setFilePrompt(e.target.value)}
-                    placeholder="Create a Week 3 outreach tracker CSV with 10 luxury real estate prospect columns including stage, estimated deal size, and next follow-up date..."
+                    placeholder="Create a Week 3 outreach tracker CSV with 10 prospect columns including stage, estimated funding size, and next follow-up date..."
                     required
                     className="w-full px-4 py-3 rounded-2xl bg-white/5 border border-white/15 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-gold resize-none"
                   />
@@ -995,9 +944,16 @@ export default function AIStudioPage({ defaultEmail, defaultName }: AIStudioPage
             </div>
           )}
 
-          {/* TAB 4: PLANS, PACKAGING & CREDITS */}
+          {/* TAB 4: PLANS, PACKAGING & VERIFIED BILLING BOUNDARY */}
           {activeTab === 'pricing' && (
             <div className="space-y-8">
+              <div className="p-4 rounded-2xl border border-white/10 bg-white/[0.03] text-xs text-white/70 flex items-center gap-3">
+                <ShieldCheck size={16} className="text-gold shrink-0" />
+                <span>
+                  Subscription upgrades and top-up credit packs are protected by server-side billing verification and cannot be self-applied from the browser.
+                </span>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
                 {plans.map((plan) => {
                   const isCurrent = account.plan.id === plan.id;
@@ -1052,36 +1008,27 @@ export default function AIStudioPage({ defaultEmail, defaultName }: AIStudioPage
                         </ul>
                       </div>
 
-                      <button
-                        type="button"
-                        disabled={isCurrent || updatingPlanId !== null}
-                        onClick={() => handlePlanUpdate({ planId: plan.id }, `${plan.name} tier`)}
-                        className={`w-full py-3 rounded-full text-xs font-semibold tracking-wide transition-colors ${
+                      <div
+                        className={`w-full py-3 rounded-full text-center text-xs font-semibold tracking-wide ${
                           isCurrent
-                            ? 'bg-green/20 text-green border border-green/40 cursor-default'
-                            : isRecommended
-                            ? 'gold-gradient text-elite-black hover:opacity-95'
-                            : 'border border-white/20 text-white hover:border-gold hover:text-gold'
+                            ? 'bg-green/20 text-green border border-green/40'
+                            : 'border border-white/15 text-white/55'
                         }`}
                       >
-                        {isCurrent
-                          ? 'Current Active Tier'
-                          : updatingPlanId === plan.id
-                          ? 'Updating...'
-                          : `Select ${plan.name}`}
-                      </button>
+                        {isCurrent ? 'Current Active Tier' : 'Managed via Verified Billing'}
+                      </div>
                     </div>
                   );
                 })}
               </div>
 
-              {/* Credit Top-Ups & Recent Usage Ledger */}
+              {/* Credit Top-Ups & Server Usage Ledger */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                 <section className="lg:col-span-5 glass rounded-3xl p-8 border border-white/10 space-y-5">
                   <div>
                     <h3 className="text-xl font-display text-white">One-Time Credit Top-Ups</h3>
                     <p className="text-xs text-white/55 mt-1">
-                      Stripe Checkout–ready add-on packs for high-volume launch weeks.
+                      Fulfilled exclusively through signed billing webhooks or administrator approval.
                     </p>
                   </div>
                   <div className="divide-y divide-white/10">
@@ -1096,16 +1043,9 @@ export default function AIStudioPage({ defaultEmail, defaultName }: AIStudioPage
                             +${pack.priceUsd} one-time · ${(pack.priceUsd / pack.credits).toFixed(2)}/credit
                           </p>
                         </div>
-                        <button
-                          type="button"
-                          disabled={updatingPlanId !== null}
-                          onClick={() =>
-                            handlePlanUpdate({ topupId: pack.id }, `+${pack.credits} top-up credits`)
-                          }
-                          className="px-4 py-2 rounded-full border border-gold/40 text-gold hover:bg-gold hover:text-elite-black text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
-                        >
-                          Add +{pack.credits}
-                        </button>
+                        <span className="text-xs text-gold/80 font-medium whitespace-nowrap shrink-0">
+                          Checkout Pending
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -1116,7 +1056,7 @@ export default function AIStudioPage({ defaultEmail, defaultName }: AIStudioPage
                     <div>
                       <h3 className="text-xl font-display text-white">Server Usage Ledger</h3>
                       <p className="text-xs text-white/55 mt-1">
-                        Audited credit deductions recorded in SQLite for {account.email}.
+                        Atomic credit reservations and refund records for {account.email}.
                       </p>
                     </div>
                     <span className="text-xs text-white/45 tabular-nums">
@@ -1134,6 +1074,7 @@ export default function AIStudioPage({ defaultEmail, defaultName }: AIStudioPage
                         <thead className="text-white/45 border-b border-white/10">
                           <tr>
                             <th className="pb-2.5 font-medium">Type</th>
+                            <th className="pb-2.5 font-medium">Status</th>
                             <th className="pb-2.5 font-medium">Request Summary</th>
                             <th className="pb-2.5 font-medium text-right">Credits</th>
                           </tr>
@@ -1144,11 +1085,24 @@ export default function AIStudioPage({ defaultEmail, defaultName }: AIStudioPage
                               <td className="py-3 pr-3 capitalize text-gold font-medium whitespace-nowrap">
                                 {row.action_type}
                               </td>
+                              <td className="py-3 pr-3 capitalize whitespace-nowrap">
+                                <span
+                                  className={
+                                    row.status === 'refunded'
+                                      ? 'text-green'
+                                      : row.status === 'reserved'
+                                      ? 'text-gold/80'
+                                      : 'text-white/70'
+                                  }
+                                >
+                                  {row.status}
+                                </span>
+                              </td>
                               <td className="py-3 pr-3 text-white/75 max-w-xs truncate">
                                 {row.prompt_summary}
                               </td>
                               <td className="py-3 text-right font-semibold text-white tabular-nums whitespace-nowrap">
-                                -{row.credits_used}
+                                {row.status === 'refunded' ? '0' : `-${row.credits_used}`}
                               </td>
                             </tr>
                           ))}

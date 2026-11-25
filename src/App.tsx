@@ -30,6 +30,12 @@ import LandingPage from './pages/LandingPage';
 import OAuthLoginPage, { AuthenticatedMember } from './pages/OAuthLoginPage';
 import Profile from './components/Profile';
 import agentProfileAvatar from './assets/images/avatar_agent_profile_1795586852526.jpg';
+import {
+  completeAuthCallbackFromUrl,
+  getSupabaseBrowserClient,
+  getVerifiedAccessToken,
+  signOutSupabase,
+} from './lib/supabase';
 
 const INITIAL_PROFILE: AgentProfile = {
   name: 'Jason Feimster',
@@ -167,13 +173,14 @@ const ROADMAP: RoadmapWeek[] = [
 ];
 
 export default function App() {
-  const [authScreen, setAuthScreen] = useState<'landing' | 'login' | 'portal'>(() => {
-    try {
-      return localStorage.getItem('mc_portal_authenticated') === 'true' ? 'portal' : 'landing';
-    } catch {
-      return 'landing';
-    }
-  });
+  const [authScreen, setAuthScreen] = useState<'landing' | 'login' | 'portal'>('landing');
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [pendingOnboarding, setPendingOnboarding] = useState<{
+    userId: string;
+    email: string;
+    accessToken: string;
+  } | null>(null);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<'dashboard' | 'roadmap' | 'resources' | 'studio' | 'docs' | 'profile'>('dashboard');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [agentProfile, setAgentProfile] = useState<AgentProfile>(INITIAL_PROFILE);
@@ -181,17 +188,93 @@ export default function App() {
   const [roadmap, setRoadmap] = useState<RoadmapWeek[]>(ROADMAP);
   const [challenges, setChallenges] = useState<Challenge[]>(INITIAL_CHALLENGES);
 
-  const handleAuthenticated = (member: AuthenticatedMember) => {
+  useEffect(() => {
+    let active = true;
+
+    const verifySession = async () => {
+      const url = new URL(window.location.href);
+      const isAuthCallbackAttempt =
+        url.pathname === '/auth/callback' ||
+        url.searchParams.has('code') ||
+        url.searchParams.has('token_hash');
+
+      try {
+        const callbackSession = await completeAuthCallbackFromUrl();
+        const token = callbackSession?.access_token ?? (await getVerifiedAccessToken());
+        if (!token || !active) return;
+
+        const res = await fetch('/api/auth/me', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok || !active) return;
+        const data = await res.json().catch(() => null);
+        if (!data || !active) return;
+
+        if (data.onboarded && data.membershipStatus === 'active' && data.account) {
+          setAccessToken(token);
+          setPendingOnboarding(null);
+          setAgentProfile((prev) => ({
+            ...prev,
+            email: data.account.email,
+            name: data.account.name || prev.name,
+            role: data.account.role === 'admin' ? 'Managing Partner · Admin' : 'Inner Circle · Member',
+          }));
+          setAuthScreen('portal');
+        } else if (data.authenticated && !data.onboarded && data.user) {
+          setAccessToken(null);
+          setPendingOnboarding({
+            userId: data.user.id,
+            email: data.user.email,
+            accessToken: token,
+          });
+          setAuthNotice(
+            `Email verified for ${data.user.email}. Enter your approved invitation code to activate your membership.`
+          );
+          setAuthScreen('login');
+        }
+      } catch (err) {
+        if (!active || !isAuthCallbackAttempt) return;
+        setAuthNotice(
+          err instanceof Error ? err.message : 'Sign-in link expired or invalid. Please request a new code.'
+        );
+        setAuthScreen('login');
+      }
+    };
+
+    verifySession();
+
+    let unsubscribe: (() => void) | undefined;
     try {
-      localStorage.setItem('mc_portal_authenticated', 'true');
-      localStorage.setItem('mc_studio_agent_email', member.email);
+      const client = getSupabaseBrowserClient();
+      const subscription = client?.auth.onAuthStateChange((event, session) => {
+        if (event === 'SIGNED_OUT') {
+          setAccessToken(null);
+          setPendingOnboarding(null);
+          setAuthScreen('landing');
+        } else if (event === 'TOKEN_REFRESHED' && session?.access_token) {
+          setAccessToken(session.access_token);
+        }
+      });
+      unsubscribe = () => subscription?.data.subscription.unsubscribe();
     } catch {
-      // Storage restricted
+      // Auth listener unavailable; public landing page remains accessible.
     }
+
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
+  }, []);
+
+  const handleAuthenticated = (member: AuthenticatedMember) => {
+    setAccessToken(member.accessToken);
+    setPendingOnboarding(null);
+    setAuthNotice(null);
     setAgentProfile((prev) => ({
       ...prev,
       email: member.email,
       name: member.name || prev.name,
+      role: member.role === 'admin' ? 'Managing Partner · Admin' : 'Inner Circle · Member',
     }));
     setActiveView('dashboard');
     setAuthScreen('portal');
@@ -199,13 +282,10 @@ export default function App() {
   };
 
   const handleSignOut = async () => {
-    try {
-      localStorage.removeItem('mc_portal_authenticated');
-      localStorage.removeItem('mc_studio_agent_email');
-    } catch {
-      // Storage restricted
-    }
-    await fetch('/api/studio/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
+    await signOutSupabase().catch(() => {});
+    setAccessToken(null);
+    setPendingOnboarding(null);
+    setAuthNotice(null);
     setAuthScreen('landing');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -261,6 +341,8 @@ export default function App() {
       <OAuthLoginPage
         defaultEmail={agentProfile.email}
         defaultName={agentProfile.name}
+        initialPendingSession={pendingOnboarding}
+        initialNotice={authNotice}
         onBackToLanding={() => {
           setAuthScreen('landing');
           window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -659,8 +741,9 @@ export default function App() {
 
           {activeView === 'studio' && (
             <AIStudioPage
-              defaultEmail={agentProfile.email}
-              defaultName={agentProfile.name}
+              accessToken={accessToken}
+              onRequireSignIn={() => setAuthScreen('login')}
+              onSignOut={handleSignOut}
             />
           )}
 

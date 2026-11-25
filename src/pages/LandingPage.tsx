@@ -113,9 +113,11 @@ export default function LandingPage({ onOpenLogin }: LandingPageProps) {
           volumeTier,
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setFormError(data.error || 'Unable to submit invitation request.');
+        setFormError(
+          data.error || 'Invitation intake is temporarily unavailable. Please try again shortly.'
+        );
         return;
       }
       setConfirmation({

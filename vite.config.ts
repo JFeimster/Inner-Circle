@@ -11,6 +11,8 @@ export default defineConfig({
     },
   },
   server: {
+    // Allow hosted dev/preview proxy hostnames (Vite 6 blocks non-localhost Host headers by default).
+    allowedHosts: true,
     // HMR is disabled in AI Studio via DISABLE_HMR env var.
     // Do not modify; file watching is disabled to prevent flickering during agent edits.
     hmr: process.env.DISABLE_HMR !== 'true',
