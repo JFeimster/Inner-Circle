@@ -1,25 +1,25 @@
 import crypto from 'crypto';
-import express, { Express, NextFunction, Request, Response } from 'express';
+import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
-import { assertValidProductionConfig, loadServerConfig, ServerConfig } from './config.ts';
+import { assertValidProductionConfig, loadServerConfig, type ServerConfig } from './config.ts';
 import {
-  AuthVerifier,
+  type AuthVerifier,
   createLocalSignedTokenVerifier,
   createSupabaseAuthVerifier,
   extractBearerToken,
   isValidUuid,
   verifyBillingWebhookSignature,
-  VerifiedIdentity,
+  type VerifiedIdentity,
 } from './auth.ts';
 import {
-  AgentAccountRow,
+  type AgentAccountRow,
   getConfiguredStore,
-  InnerCircleStore,
-  InvitationStatus,
-  MemberRole,
-  MembershipStatus,
-  PlanId,
+  type InnerCircleStore,
+  type InvitationStatus,
+  type MemberRole,
+  type MembershipStatus,
+  type PlanId,
 } from './db.ts';
 import { SlidingWindowRateLimiter } from './rateLimit.ts';
 
@@ -473,6 +473,20 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
         error: 'Service temporarily unavailable.',
       });
     }
+  });
+
+  // --- 1b. Public Pricing Catalog (Strictly Read-Only, Zero DB Dependency) ---
+  app.get('/api/pricing', (_req: Request, res: Response) => {
+    res.status(200).json({
+      plans: STUDIO_PLANS,
+      topupPacks: TOPUP_PACKS,
+      creditCosts: CREDIT_COSTS,
+      billing: {
+        mode: 'verified_webhook_required',
+        livePaymentsEnabled: Boolean(config.billingWebhookSecret),
+        selfUpgradeAllowed: false,
+      },
+    });
   });
 
   // --- 2. Authentication Callback Route (Redirects PKCE code cleanly to SPA callback) ---

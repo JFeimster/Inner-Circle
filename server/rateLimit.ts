@@ -11,11 +11,13 @@ export interface RateLimitResult {
 
 export class SlidingWindowRateLimiter {
   private buckets = new Map<string, Bucket>();
+  private readonly maxRequests: number;
+  private readonly windowMs: number;
 
-  constructor(
-    private readonly maxRequests: number,
-    private readonly windowMs: number
-  ) {}
+  constructor(maxRequests: number, windowMs: number) {
+    this.maxRequests = maxRequests;
+    this.windowMs = windowMs;
+  }
 
   consume(key: string, now: number = Date.now()): RateLimitResult {
     const existing = this.buckets.get(key);

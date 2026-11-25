@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Request } from 'express';
 import type { ServerConfig } from './config.ts';
 

@@ -60,24 +60,24 @@ Use this document to track upcoming portal features, component specifications, d
 ### 5.10 Admin Dashboard (`src/components/AdminDashboard.tsx`)
 - **Status:** `[ ] Planned`
 - **Priority:** High — Operationalizes Phase 2 invitation-gated onboarding and server-side RBAC without requiring direct SQL edits.
-- **Objective:** Provide an administrator-only portal view (`role === 'admin'`) that consumes the existing `/api/admin/accounts` and `/api/admin/invitations` endpoints so administrators can review incoming applications, manage agent access, and update membership statuses.
+- **Objective:** Create a new `src/components/AdminDashboard.tsx` view that consumes `/api/admin/accounts` and `/api/admin/invitations` and presents them in a **tabbed view** (`Agent Accounts` | `Invitations`) for an authenticated administrator (`role === 'admin'`) to manage agent access and membership statuses.
 - **Key UI & UX Elements:**
   - **Admin Access Gate:** Only rendered in navigation and accessible when the authenticated account snapshot reports `role === 'admin'` (all endpoints remain independently enforced server-side via `requireVerifiedAuth` + `requireActiveMember` + `requireAdmin`).
-  - **Invitations Management Tab:**
-    - Filterable table (`All`, `Pending`, `Approved`, `Redeemed`, `Revoked`, `Expired`) powered by `GET /api/admin/invitations?status=...`.
-    - Displays applicant full name, email, primary market, volume tier, reference code (`MC-XXXXXXXX`), assigned role, expiration date, and status badge.
-    - One-click **Approve** (`POST /api/admin/invitations/:referenceCode/approve` with configurable `assignedRole` and `expiresInDays`) and **Revoke** (`POST /api/admin/invitations/:referenceCode/revoke`) actions with confirmation feedback and copyable reference code.
-  - **Agent Accounts & Membership Status Tab:**
-    - Directory powered by `GET /api/admin/accounts` showing agent name, email, canonical UUID (truncated with copy button), role (`member` / `admin`), membership status (`active` / `suspended` / `revoked`), active studio plan, and bonus credits.
-    - Inline role & status controls calling `PATCH /api/admin/accounts/:userId/membership` to promote/demote roles or immediately suspend/reactivate/revoke agent access.
+  - **Tabbed View Structure:** Clean segmented tab bar switching between **Agent Accounts** and **Invitations**, with live counts per tab and refresh control.
+  - **Tab 1 — Agent Accounts (`GET /api/admin/accounts`):**
+    - Directory showing agent name, email, canonical UUID (truncated with copy button), role (`member` / `admin`), membership status (`active` / `suspended` / `revoked`), active studio plan, and bonus credits.
+    - Inline role & status controls calling `PATCH /api/admin/accounts/:userId/membership` to promote/demote roles or immediately suspend/reactivate/revoke agent statuses.
     - Optional administrator billing adjustment action calling `POST /api/admin/accounts/:userId/billing` (with generated `Idempotency-Key`) for approved tier upgrades or bonus credit grants.
+  - **Tab 2 — Invitations (`GET /api/admin/invitations?status=...`):**
+    - Filterable table (`All`, `Pending`, `Approved`, `Redeemed`, `Revoked`, `Expired`) showing applicant full name, email, primary market, volume tier, reference code (`MC-XXXXXXXX`), assigned role, expiration date, and status badge.
+    - One-click **Approve** (`POST /api/admin/invitations/:referenceCode/approve` with configurable `assignedRole` and `expiresInDays`) and **Revoke** (`POST /api/admin/invitations/:referenceCode/revoke`) actions with confirmation feedback and copyable reference code.
 - **Data & API Contract (Already Implemented on Server):**
-  - `GET /api/admin/invitations` (optional `?status=`)
-  - `POST /api/admin/invitations/:referenceCode/approve`
-  - `POST /api/admin/invitations/:referenceCode/revoke`
   - `GET /api/admin/accounts`
   - `PATCH /api/admin/accounts/:userId/membership`
   - `POST /api/admin/accounts/:userId/billing`
+  - `GET /api/admin/invitations` (optional `?status=`)
+  - `POST /api/admin/invitations/:referenceCode/approve`
+  - `POST /api/admin/invitations/:referenceCode/revoke`
   - All calls send `Authorization: Bearer <supabase_access_token>` and handle `403` / `503` gracefully.
 
 ---
@@ -85,16 +85,17 @@ Use this document to track upcoming portal features, component specifications, d
 ### 5.11 Profile Monthly AI Credit Consumption Visualizer (`src/components/Profile.tsx`)
 - **Status:** `[ ] Planned`
 - **Priority:** High — Gives agents immediate visibility into their AI Studio quota and plan allowance directly inside their Profile view.
-- **Objective:** Extend `src/components/Profile.tsx` with a visual progress bar and/or consumption chart comparing monthly AI credit consumption against the agent's active plan limits using live data from `GET /api/studio/account`.
+- **Objective:** Extend `src/components/Profile.tsx` with a **visual progress bar or simple donut chart (using Recharts)** representing the user's monthly AI credit consumption versus their active plan's limits, fetching live data from `GET /api/studio/account`.
 - **Key UI & UX Elements:**
-  - **Live Account Integration:** Fetches `GET /api/studio/account` with the verified `Authorization: Bearer <token>` header (or accepts the account snapshot from `App.tsx`) with clean loading, unauthenticated, and pre-migration `503` fallback states.
-  - **Monthly Quota Progress Bar & Breakdown:**
-    - Displays `monthlyUsed` vs. `monthlyAllowance` (`plan.monthlyCredits + bonusCredits`) with percentage indicator (`tabular-nums`) and color thresholds (emerald `< 75%`, champagne gold `75–94%`, crimson `>= 95%`).
+  - **Live Account Integration:** Fetches `GET /api/studio/account` with the verified `Authorization: Bearer <token>` header (or consumes the account snapshot from `App.tsx`) with clean loading, unauthenticated, and pre-migration `503` fallback states.
+  - **Monthly Consumption Progress Bar / Recharts Donut Chart:**
+    - Renders a Recharts `PieChart` / `Pie` donut (`innerRadius` + `outerRadius`, `ResponsiveContainer`) or high-contrast horizontal progress bar showing `monthlyUsed` vs. `remainingCredits` against `monthlyAllowance` (`plan.monthlyCredits + bonusCredits`), with center/inline percentage (`tabular-nums`) and threshold colors (emerald `< 75%`, champagne gold `75–94%`, crimson `>= 95%`).
     - Secondary daily safety cap indicator (`dailyUsed / dailyLimit`, `remainingDaily` available today).
-    - Compact action-type consumption breakdown chart (Chat `1 cr`, File `2 cr`, Image `5 cr`) aggregated from `recentUsage` (excluding `refunded` ledger rows) so agents can see where credits are spent.
+    - Compact action-type consumption breakdown (Chat `1 cr`, File `2 cr`, Image `5 cr`) aggregated from `recentUsage` (excluding `refunded` ledger rows) so agents can see where credits are spent.
   - **Quick Action Link:** Direct button to open **AI Studio → Plans & Credits** (`onNavigate('studio')`) for viewing full ledger history and plan tiers.
-- **Data & API Contract (Already Implemented on Server):**
-  - `GET /api/studio/account` -> `account.plan` (`name`, `monthlyCredits`, `dailyLimit`), `account.bonusCredits`, `account.monthlyAllowance`, `account.monthlyUsed`, `account.remainingCredits`, `account.dailyUsed`, `account.remainingDaily`, and `account.recentUsage`.
+- **Dependencies & Data Contract:**
+  - **Package to add when implementing:** `recharts` (for the donut chart visualization).
+  - **API (Already Implemented on Server):** `GET /api/studio/account` -> `account.plan` (`name`, `monthlyCredits`, `dailyLimit`), `account.bonusCredits`, `account.monthlyAllowance`, `account.monthlyUsed`, `account.remainingCredits`, `account.dailyUsed`, `account.remainingDaily`, and `account.recentUsage`.
 
 ---
 
