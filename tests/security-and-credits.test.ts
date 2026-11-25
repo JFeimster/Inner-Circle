@@ -458,16 +458,17 @@ test('6. Atomic concurrent credit reservations prevent overspend, enforce idempo
 
     const aliceToken = tokenFor(USER_A_UUID, 'alice@brokerage.com', 'Alice');
 
+    const keys = [1, 2, 3, 4, 5].map((n) => `img-concurrent-${n}`);
     const responses = await Promise.all(
-      [1, 2, 3, 4, 5].map((n) =>
+      keys.map((key, idx) =>
         fetch(`${srv.baseUrl}/api/studio/image`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${aliceToken}`,
-            'Idempotency-Key': `img-concurrent-${n}`,
+            'Idempotency-Key': key,
           },
-          body: JSON.stringify({ prompt: `Luxury office visual ${n}`, aspectRatio: '16:9' }),
+          body: JSON.stringify({ prompt: `Luxury office visual ${idx + 1}`, aspectRatio: '16:9' }),
         })
       )
     );
@@ -475,13 +476,16 @@ test('6. Atomic concurrent credit reservations prevent overspend, enforce idempo
     const statuses = responses.map((r) => r.status).sort();
     assert.deepEqual(statuses, [200, 200, 429, 429, 429]);
 
+    const winningIdx = responses.findIndex((r) => r.status === 200);
+    const winningKey = keys[winningIdx];
+
     // Duplicate Idempotency-Key returns 409 Conflict
     const dupRes = await fetch(`${srv.baseUrl}/api/studio/image`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${aliceToken}`,
-        'Idempotency-Key': 'img-concurrent-1',
+        'Idempotency-Key': winningKey,
       },
       body: JSON.stringify({ prompt: 'Replay attempt', aspectRatio: '16:9' }),
     });
@@ -681,5 +685,31 @@ test('10. Disabled AI never reserves credits and unverified email cannot redeem'
   } finally {
     await new Promise<void>(resolve => server.close(() => resolve()));
     store.close();
+  }
+});
+
+test('8. Public GET /api/pricing returns authoritative catalog without DB dependency or secret leakage', async () => {
+  const prodNoDb = await startTestServer({ isProductionNoConfig: true });
+  try {
+    const res = await fetch(`${prodNoDb.baseUrl}/api/pricing`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+
+    assert.equal(Array.isArray(body.plans), true);
+    assert.deepEqual(
+      body.plans.map((p: { id: string }) => p.id),
+      ['onboarding', 'producer', 'inner_circle']
+    );
+    assert.deepEqual(
+      body.topupPacks.map((p: { id: string }) => p.id),
+      ['pack_100', 'pack_300']
+    );
+    assert.deepEqual(body.creditCosts, { chat: 1, file: 2, image: 5 });
+    assert.equal(body.billing.selfUpgradeAllowed, false);
+    assert.equal(body.billing.livePaymentsEnabled, false);
+    assert.equal(JSON.stringify(body).includes('BILLING_WEBHOOK_SECRET'), false);
+    assert.equal(JSON.stringify(body).includes('SUPABASE_SECRET_KEY'), false);
+  } finally {
+    await prodNoDb.close();
   }
 });

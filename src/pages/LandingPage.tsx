@@ -7,6 +7,7 @@ import avatarPartnerSarah from '../assets/images/avatar_partner_sarah_1795589533
 
 interface LandingPageProps {
   onOpenLogin: () => void;
+  onOpenPricing: () => void;
 }
 
 const HERO_IMAGE = heroMoonshinePenthouse;
@@ -63,7 +64,7 @@ const PROOF_METRICS = [
   { value: '1 : 1', label: 'Senior partner mentorship ratio' },
 ];
 
-export default function LandingPage({ onOpenLogin }: LandingPageProps) {
+export default function LandingPage({ onOpenLogin, onOpenPricing }: LandingPageProps) {
   const [selectedWeekIdx, setSelectedWeekIdx] = useState(0);
   const [heroImgError, setHeroImgError] = useState(false);
   const [boardroomImgError, setBoardroomImgError] = useState(false);
@@ -168,6 +169,13 @@ export default function LandingPage({ onOpenLogin }: LandingPageProps) {
             >
               Results
             </a>
+            <button
+              type="button"
+              onClick={onOpenPricing}
+              className="hover:text-white transition-colors whitespace-nowrap shrink-0"
+            >
+              Pricing
+            </button>
             <a
               href="#apply"
               className="hover:text-white transition-colors whitespace-nowrap shrink-0"
@@ -641,6 +649,13 @@ export default function LandingPage({ onOpenLogin }: LandingPageProps) {
           <div className="flex items-center gap-6">
             <a href="#capabilities" className="hover:text-white transition-colors">Network</a>
             <a href="#proof" className="hover:text-white transition-colors">Results</a>
+            <button
+              type="button"
+              onClick={onOpenPricing}
+              className="hover:text-white transition-colors"
+            >
+              Pricing
+            </button>
             <a href="#apply" className="hover:text-white transition-colors">Apply</a>
             <button
               type="button"

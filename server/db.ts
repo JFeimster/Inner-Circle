@@ -1,7 +1,7 @@
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { isInnerCircleSupabaseUrl, type ServerConfig } from './config.ts';
 
 export type MemberRole = 'member' | 'admin';

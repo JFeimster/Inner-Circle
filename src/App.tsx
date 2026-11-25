@@ -27,6 +27,7 @@ import { AgentProfile, Milestone, Resource, ResourceCategory, RoadmapWeek, Succe
 import BlueprintDocsPage from './pages/BlueprintDocsPage';
 import AIStudioPage from './pages/AIStudioPage';
 import LandingPage from './pages/LandingPage';
+import PricingPage, { PricingPlanId } from './pages/PricingPage';
 import OAuthLoginPage, { AuthenticatedMember } from './pages/OAuthLoginPage';
 import Profile from './components/Profile';
 import AdminWorkspace from './pages/AdminWorkspace';
@@ -174,9 +175,12 @@ const ROADMAP: RoadmapWeek[] = [
 ];
 
 export default function App() {
-  const [authScreen, setAuthScreen] = useState<'landing' | 'login' | 'portal'>('landing');
+  const [authScreen, setAuthScreen] = useState<'landing' | 'pricing' | 'login' | 'portal'>(() =>
+    typeof window !== 'undefined' && window.location.pathname === '/pricing' ? 'pricing' : 'landing'
+  );
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [memberRole, setMemberRole] = useState<'member' | 'admin'>('member');
+  const [currentPlanId, setCurrentPlanId] = useState<PricingPlanId | null>(null);
   const [pendingOnboarding, setPendingOnboarding] = useState<{
     userId: string;
     email: string;
@@ -215,6 +219,7 @@ export default function App() {
         if (data.onboarded && data.membershipStatus === 'active' && data.account) {
           setMemberRole(data.account.role === 'admin' ? 'admin' : 'member');
           setAccessToken(token);
+          setCurrentPlanId(data.account.plan?.id ?? null);
           setPendingOnboarding(null);
           setAgentProfile((prev) => ({
             ...prev,
@@ -222,7 +227,9 @@ export default function App() {
             name: data.account.name || prev.name,
             role: data.account.role === 'admin' ? 'Managing Partner · Admin' : 'Inner Circle · Member',
           }));
-          setAuthScreen('portal');
+          if (url.pathname !== '/pricing') {
+            setAuthScreen('portal');
+          }
         } else if (data.authenticated && !data.onboarded && data.user) {
           setAccessToken(null);
           setPendingOnboarding({
@@ -289,10 +296,28 @@ export default function App() {
     await signOutSupabase().catch(() => {});
     setAccessToken(null);
     setMemberRole('member');
+    setCurrentPlanId(null);
     setPendingOnboarding(null);
     setAuthNotice(null);
     setAuthScreen('landing');
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const openPublicScreen = (screen: 'landing' | 'pricing' | 'login', scrollToApply = false) => {
+    setAuthScreen(screen);
+    if (typeof window !== 'undefined') {
+      const nextPath = screen === 'pricing' ? '/pricing' : '/';
+      if (window.location.pathname !== nextPath) {
+        window.history.replaceState({}, document.title, nextPath);
+      }
+    }
+    if (scrollToApply) {
+      setTimeout(() => {
+        document.getElementById('apply')?.scrollIntoView({ behavior: 'smooth' });
+      }, 60);
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
   const filteredResources = selectedCategory 
@@ -333,8 +358,23 @@ export default function App() {
   if (authScreen === 'landing') {
     return (
       <LandingPage
-        onOpenLogin={() => {
-          setAuthScreen('login');
+        onOpenLogin={() => openPublicScreen('login')}
+        onOpenPricing={() => openPublicScreen('pricing')}
+      />
+    );
+  }
+
+  if (authScreen === 'pricing') {
+    return (
+      <PricingPage
+        isAuthenticated={Boolean(accessToken)}
+        currentPlanId={currentPlanId}
+        onBackToLanding={() => openPublicScreen('landing')}
+        onRequestInvite={() => openPublicScreen('landing', true)}
+        onOpenLogin={() => openPublicScreen('login')}
+        onOpenStudio={() => {
+          setActiveView('studio');
+          setAuthScreen('portal');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
       />
@@ -348,10 +388,7 @@ export default function App() {
         defaultName={agentProfile.name}
         initialPendingSession={pendingOnboarding}
         initialNotice={authNotice}
-        onBackToLanding={() => {
-          setAuthScreen('landing');
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }}
+        onBackToLanding={() => openPublicScreen('landing')}
         onAuthenticated={handleAuthenticated}
       />
     );
@@ -800,8 +837,9 @@ export default function App() {
         <div className="max-w-7xl mx-auto mt-12 pt-8 border-t border-white/5 flex flex-wrap justify-between items-center gap-4 text-[10px] opacity-40 uppercase tracking-[0.2em]">
           <p>© 2026 Moonshine Capital. All Rights Reserved.</p>
           <div className="flex flex-wrap gap-6">
-            <button type="button" onClick={() => setAuthScreen('landing')} className="hover:text-gold transition-colors uppercase">Public Landing</button>
-            <button type="button" onClick={() => setAuthScreen('login')} className="hover:text-gold transition-colors uppercase">OAuth Login</button>
+            <button type="button" onClick={() => openPublicScreen('landing')} className="hover:text-gold transition-colors uppercase">Public Landing</button>
+            <button type="button" onClick={() => openPublicScreen('pricing')} className="hover:text-gold transition-colors uppercase">Pricing</button>
+            <button type="button" onClick={() => openPublicScreen('login')} className="hover:text-gold transition-colors uppercase">OAuth Login</button>
             <button type="button" onClick={() => setActiveView('docs')} className="hover:text-gold transition-colors uppercase">Blueprint Docs</button>
             <button type="button" onClick={handleSignOut} className="hover:text-gold transition-colors uppercase">Sign Out</button>
           </div>

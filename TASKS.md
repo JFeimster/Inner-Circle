@@ -29,3 +29,10 @@
 - [ ] Review `20261125000300_phase3_hardening.sql` on a local Supabase instance and run `tests/postgres.integration.ts` against loopback PostgreSQL.
 - [ ] Review production environment variables and apply the three migrations to the dedicated Inner Circle project only, after explicit authorization.
 - [ ] Activate AI and billing only after separate production approval and integration verification.
+## Ongoing Feature Tasks (Next Phase — See `docs/09-feature-backlog-and-component-specs.md`)
+- [ ] **Profile Monthly AI Credit Usage (`src/components/Profile.tsx`):** Extend `src/components/Profile.tsx` with a visual progress bar or simple donut chart (using `recharts`) representing monthly AI credit consumption versus plan limits, fetching live data from `/api/studio/account`.
+- [ ] **Admin Dashboard (`src/components/AdminDashboard.tsx`):** Create `src/components/AdminDashboard.tsx` consuming `/api/admin/accounts` and `/api/admin/invitations` in a tabbed view (`Agent Accounts` | `Invitations`) for authenticated administrators to manage agent statuses and review/approve/revoke invitations.
+- [ ] **Network Leaderboard (`src/components/NetworkLeaderboard.tsx`):** Rank agents by challenge/milestone points with global network rank display.
+- [ ] **Notification Center (`src/components/NotificationCenter.tsx`):** Add real-time toast overlays and slide-out drawer for leads, mentor feedback, and community activity.
+- [ ] **Start Module Video Modal (`src/components/ModulePlayerModal.tsx`):** Open embedded video player and syllabus checklist modal when clicking "Start Module".
+
