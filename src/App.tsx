@@ -26,6 +26,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { AgentProfile, Milestone, Resource, ResourceCategory, RoadmapWeek, SuccessStory, Challenge } from './types';
 import BlueprintDocsPage from './pages/BlueprintDocsPage';
 import AIStudioPage from './pages/AIStudioPage';
+import LandingPage from './pages/LandingPage';
+import OAuthLoginPage, { AuthenticatedMember } from './pages/OAuthLoginPage';
 import Profile from './components/Profile';
 
 const INITIAL_PROFILE: AgentProfile = {
@@ -164,12 +166,48 @@ const ROADMAP: RoadmapWeek[] = [
 ];
 
 export default function App() {
+  const [authScreen, setAuthScreen] = useState<'landing' | 'login' | 'portal'>(() => {
+    try {
+      return localStorage.getItem('mc_portal_authenticated') === 'true' ? 'portal' : 'landing';
+    } catch {
+      return 'landing';
+    }
+  });
   const [activeView, setActiveView] = useState<'dashboard' | 'roadmap' | 'resources' | 'studio' | 'docs' | 'profile'>('dashboard');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [agentProfile, setAgentProfile] = useState<AgentProfile>(INITIAL_PROFILE);
   const [milestones, setMilestones] = useState<Milestone[]>(INITIAL_MILESTONES);
   const [roadmap, setRoadmap] = useState<RoadmapWeek[]>(ROADMAP);
   const [challenges, setChallenges] = useState<Challenge[]>(INITIAL_CHALLENGES);
+
+  const handleAuthenticated = (member: AuthenticatedMember) => {
+    try {
+      localStorage.setItem('mc_portal_authenticated', 'true');
+      localStorage.setItem('mc_studio_agent_email', member.email);
+    } catch {
+      // Storage restricted
+    }
+    setAgentProfile((prev) => ({
+      ...prev,
+      email: member.email,
+      name: member.name || prev.name,
+    }));
+    setActiveView('dashboard');
+    setAuthScreen('portal');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleSignOut = async () => {
+    try {
+      localStorage.removeItem('mc_portal_authenticated');
+      localStorage.removeItem('mc_studio_agent_email');
+    } catch {
+      // Storage restricted
+    }
+    await fetch('/api/studio/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
+    setAuthScreen('landing');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const filteredResources = selectedCategory 
     ? RESOURCES.filter(r => r.category === selectedCategory)
@@ -205,6 +243,31 @@ export default function App() {
       )
     );
   };
+
+  if (authScreen === 'landing') {
+    return (
+      <LandingPage
+        onOpenLogin={() => {
+          setAuthScreen('login');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+      />
+    );
+  }
+
+  if (authScreen === 'login') {
+    return (
+      <OAuthLoginPage
+        defaultEmail={agentProfile.email}
+        defaultName={agentProfile.name}
+        onBackToLanding={() => {
+          setAuthScreen('landing');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+        onAuthenticated={handleAuthenticated}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-elite-black text-white selection:bg-gold selection:text-elite-black font-sans">
@@ -612,6 +675,11 @@ export default function App() {
               onToggleMilestone={handleToggleMilestone}
               onToggleChallenge={handleToggleChallenge}
               onNavigate={setActiveView}
+              onSignOut={handleSignOut}
+              onViewPublicLanding={() => {
+                setAuthScreen('landing');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
             />
           )}
         </AnimatePresence>
@@ -633,13 +701,13 @@ export default function App() {
             </button>
           </div>
         </div>
-        <div className="max-w-7xl mx-auto mt-12 pt-8 border-t border-white/5 flex justify-between items-center text-[10px] opacity-30 uppercase tracking-[0.2em]">
+        <div className="max-w-7xl mx-auto mt-12 pt-8 border-t border-white/5 flex flex-wrap justify-between items-center gap-4 text-[10px] opacity-40 uppercase tracking-[0.2em]">
           <p>© 2026 Moonshine Capital. All Rights Reserved.</p>
-          <div className="flex gap-6">
-            <button onClick={() => setActiveView('docs')} className="hover:text-gold transition-colors uppercase">Blueprint Docs</button>
-            <a href="#">Privacy</a>
-            <a href="#">Terms</a>
-            <a href="#">Compliance</a>
+          <div className="flex flex-wrap gap-6">
+            <button type="button" onClick={() => setAuthScreen('landing')} className="hover:text-gold transition-colors uppercase">Public Landing</button>
+            <button type="button" onClick={() => setAuthScreen('login')} className="hover:text-gold transition-colors uppercase">OAuth Login</button>
+            <button type="button" onClick={() => setActiveView('docs')} className="hover:text-gold transition-colors uppercase">Blueprint Docs</button>
+            <button type="button" onClick={handleSignOut} className="hover:text-gold transition-colors uppercase">Sign Out</button>
           </div>
         </div>
       </footer>

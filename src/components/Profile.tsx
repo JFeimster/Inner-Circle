@@ -19,6 +19,8 @@ interface ProfileProps {
   onToggleMilestone: (milestoneId: string) => void;
   onToggleChallenge: (challengeId: string) => void;
   onNavigate: (view: 'dashboard' | 'roadmap' | 'resources' | 'studio' | 'docs' | 'profile') => void;
+  onSignOut?: () => void;
+  onViewPublicLanding?: () => void;
 }
 
 export default function Profile({
@@ -30,6 +32,8 @@ export default function Profile({
   onToggleMilestone,
   onToggleChallenge,
   onNavigate,
+  onSignOut,
+  onViewPublicLanding,
 }: ProfileProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState<AgentProfile>(profile);
@@ -447,21 +451,42 @@ export default function Profile({
             </div>
           </div>
 
-          <div className="pt-4 border-t border-white/10 flex items-center justify-between gap-4">
-            <button
-              type="button"
-              onClick={() => onNavigate('resources')}
-              className="text-xs font-medium text-white/70 hover:text-gold transition-colors flex items-center gap-1.5"
-            >
-              Visit Resource Center <ArrowRight size={14} />
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('dashboard')}
-              className="text-xs font-medium text-white/70 hover:text-gold transition-colors"
-            >
-              Back to Dashboard
-            </button>
+          <div className="pt-4 border-t border-white/10 flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={() => onNavigate('resources')}
+                className="text-xs font-medium text-white/70 hover:text-gold transition-colors flex items-center gap-1.5"
+              >
+                Visit Resource Center <ArrowRight size={14} />
+              </button>
+              {onViewPublicLanding && (
+                <button
+                  type="button"
+                  onClick={onViewPublicLanding}
+                  className="text-xs font-medium text-white/55 hover:text-white transition-colors"
+                >
+                  View Public Landing
+                </button>
+              )}
+            </div>
+            {onSignOut ? (
+              <button
+                type="button"
+                onClick={onSignOut}
+                className="text-xs font-medium text-gold hover:underline transition-colors"
+              >
+                Sign Out
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onNavigate('dashboard')}
+                className="text-xs font-medium text-white/70 hover:text-gold transition-colors"
+              >
+                Back to Dashboard
+              </button>
+            )}
           </div>
         </section>
       </div>

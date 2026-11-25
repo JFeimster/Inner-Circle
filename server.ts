@@ -115,6 +115,16 @@ db.exec(`
     FOREIGN KEY (agent_email) REFERENCES agent_accounts(email)
   );
 
+  CREATE TABLE IF NOT EXISTS invitations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    reference_code TEXT NOT NULL,
+    full_name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    market TEXT NOT NULL,
+    volume_tier TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   CREATE INDEX IF NOT EXISTS idx_usage_agent_month
     ON usage_ledger (agent_email, month_key);
   CREATE INDEX IF NOT EXISTS idx_usage_agent_day
@@ -354,6 +364,41 @@ async function startServer() {
       sameSite: 'none',
     });
     res.json({ authenticated: false });
+  });
+
+  // Request Invitation (Universal Landing Page lead capture)
+  app.post('/api/invitations', (req: Request, res: Response) => {
+    const fullName = typeof req.body?.fullName === 'string' ? req.body.fullName.trim() : '';
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    const market = typeof req.body?.market === 'string' ? req.body.market.trim() : '';
+    const volumeTier = typeof req.body?.volumeTier === 'string' ? req.body.volumeTier.trim() : '';
+
+    if (!fullName || fullName.length < 2) {
+      res.status(400).json({ error: 'Please provide your full name.' });
+      return;
+    }
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      res.status(400).json({ error: 'Please enter a valid work email address.' });
+      return;
+    }
+    if (!market) {
+      res.status(400).json({ error: 'Please enter your primary market or territory.' });
+      return;
+    }
+
+    const referenceCode = `MC-${Math.floor(100000 + Math.random() * 900000)}`;
+    db.prepare(
+      `INSERT INTO invitations (reference_code, full_name, email, market, volume_tier)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(referenceCode, fullName, email, market, volumeTier || '$10M – $25M');
+
+    res.status(201).json({
+      referenceCode,
+      fullName,
+      email,
+      market,
+      message: 'Your invitation request has been logged for partner review.',
+    });
   });
 
   // Change plan tier or apply credit top-up pack (Stripe-ready billing hook)
