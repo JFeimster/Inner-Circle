@@ -1,0 +1,86 @@
+name: Database verification
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - phase-2-supabase-hardening
+
+permissions:
+  contents: read
+
+jobs:
+  postgres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out review branch
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.5
+
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install pinned Supabase CLI
+        uses: supabase/setup-cli@v3
+        with:
+          version: 3.4.0
+
+      - name: Start disposable local Supabase database and apply migrations
+        run: supabase db start
+
+      - name: Verify all three migrations were applied locally
+        env:
+          LOCAL_PG_TEST_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: |
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const client = new pg.Client({ connectionString: process.env.LOCAL_PG_TEST_URL });
+          await client.connect();
+          try {
+            const result = await client.query('SELECT version FROM supabase_migrations.schema_migrations ORDER BY version');
+            const expected = ['20261125000100', '20261125000200', '20261125000300'];
+            const actual = result.rows.map(row => String(row.version));
+            if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+              throw new Error(`Unexpected local migration history: ${actual.join(', ')}`);
+            }
+            console.log(`Verified ${actual.length} local migrations: ${actual.join(', ')}`);
+          } finally {
+            await client.end();
+          }
+          NODE
+
+      - name: Run PostgreSQL integration tests and reject skips
+        env:
+          LOCAL_PG_TEST_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: |
+          set +e
+          npx tsx --test --test-reporter=tap tests/postgres.integration.ts | tee "$RUNNER_TEMP/postgres.tap"
+          test_exit=${PIPESTATUS[0]}
+          set -e
+          {
+            echo '### PostgreSQL integration verification'
+            grep -E '^# (tests|pass|fail|skipped) ' "$RUNNER_TEMP/postgres.tap" || true
+          } >> "$GITHUB_STEP_SUMMARY"
+          test "$test_exit" -eq 0
+          grep -Eq '^# tests [1-9][0-9]*$' "$RUNNER_TEMP/postgres.tap"
+          grep -Eq '^# pass [1-9][0-9]*$' "$RUNNER_TEMP/postgres.tap"
+          grep -Eq '^# fail 0$' "$RUNNER_TEMP/postgres.tap"
+          grep -Eq '^# skipped 0$' "$RUNNER_TEMP/postgres.tap"
+
+      - name: Validate TypeScript
+        run: npm run lint
+
+      - name: Run regression tests
+        run: npm test
+
+      - name: Build production assets
+        run: npm run build
+
+      - name: Remove disposable local Supabase data
+        if: always()
+        run: supabase stop --no-backup || true

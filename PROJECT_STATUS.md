@@ -1,6 +1,6 @@
 # PROJECT_STATUS.md — Inner Circle
 
-**Status:** Phase 3 implementation committed; local PostgreSQL verification pending
+**Status:** Phase 3 CI database verification prepared; hosted run pending
 **Last Updated:** 2026-11-25  
 
 ## Infrastructure Reference
@@ -34,4 +34,6 @@
 
 # Phase 3 review status (2026-11-25)
 
-Targeted production hardening is committed locally on `phase-2-supabase-hardening` at `680083678afcf23a6b4fb4b309a898622490906e`. The migration and PostgreSQL integration suite are review artifacts. On 2026-11-25, no Docker, PostgreSQL binaries/service, Supabase CLI, WSL distribution, or listener on ports 5432/54321/54322 was available. No local or remote migration was run. The shortest supported verification path is an isolated local Supabase stack, which requires Docker and Supabase CLI provisioning. This was not installed because the final verification request requires reporting that need first. `npx tsx --test tests/postgres.integration.ts` reported one skipped test. `npm run lint`, `npm test` (10/10 passed), and `npm run build` passed. No application defect was corrected in this verification pass. No push, merge, deployment, paid service activation, or external infrastructure modification occurred. `AI_STUDIO_LIVE_ENABLED` remains `false` in the environment template and `BILLING_WEBHOOK_SECRET` remains blank.
+Targeted production hardening is committed locally on `phase-2-supabase-hardening` at `680083678afcf23a6b4fb4b309a898622490906e`. The workstation has no usable Docker, PostgreSQL, or Supabase CLI. The `database-verification.yml` workflow now prepares an isolated PostgreSQL 17 database on a standard GitHub runner with pinned Supabase CLI 3.4.0 and the frozen Bun lockfile. It checks all three migration versions, runs `tests/postgres.integration.ts`, rejects skipped tests, then runs TypeScript validation, regression tests, and the production build. This workflow has not been pushed or run; PostgreSQL results remain pending. The CI job uses only the loopback database URL and no production credentials. No remote migration or external infrastructure change occurred.
+
+The Vercel project `inner-circle` currently shows a READY production deployment from `main` at `dddaaf12c3ab76417715af332908f470f6e6b6a5`. The repository's `vercel.json` has no Git deployment suppression rule. Under Vercel's default Git behavior, pushing `phase-2-supabase-hardening` can create a Preview deployment; merging into `main` can create a Production deployment. The review branch has not been published, so its actual Preview behavior has not been observed. Review Vercel Preview environment variables and deployment protection before authorizing the push. Production activation remains blocked until hosted PostgreSQL tests pass and the database activation steps are separately authorized.
