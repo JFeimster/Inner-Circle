@@ -17,6 +17,11 @@ jobs:
       - name: Check out review branch
         uses: actions/checkout@v4
 
+      - name: Use Vercel Node.js runtime version
+        uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -75,11 +80,11 @@ jobs:
       - name: Validate TypeScript
         run: npm run lint
 
+      - name: Build production assets and server JavaScript
+        run: npm run build
+
       - name: Run regression tests
         run: npm test
-
-      - name: Build production assets
-        run: npm run build
 
       - name: Remove disposable local Supabase data
         if: always()

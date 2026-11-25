@@ -1,6 +1,3 @@
-// Load the existing TypeScript server modules in the Node.js function runtime.
-import 'tsx/esm';
-
-const { createApiApp } = await import('../server/app.ts');
+import { createApiApp } from '../dist-server/server/app.js';
 
 export default createApiApp();
