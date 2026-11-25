@@ -57,6 +57,47 @@ Use this document to track upcoming portal features, component specifications, d
 
 ---
 
+### 5.10 Admin Dashboard (`src/components/AdminDashboard.tsx`)
+- **Status:** `[ ] Planned`
+- **Priority:** High — Operationalizes Phase 2 invitation-gated onboarding and server-side RBAC without requiring direct SQL edits.
+- **Objective:** Provide an administrator-only portal view (`role === 'admin'`) that consumes the existing `/api/admin/accounts` and `/api/admin/invitations` endpoints so administrators can review incoming applications, manage agent access, and update membership statuses.
+- **Key UI & UX Elements:**
+  - **Admin Access Gate:** Only rendered in navigation and accessible when the authenticated account snapshot reports `role === 'admin'` (all endpoints remain independently enforced server-side via `requireVerifiedAuth` + `requireActiveMember` + `requireAdmin`).
+  - **Invitations Management Tab:**
+    - Filterable table (`All`, `Pending`, `Approved`, `Redeemed`, `Revoked`, `Expired`) powered by `GET /api/admin/invitations?status=...`.
+    - Displays applicant full name, email, primary market, volume tier, reference code (`MC-XXXXXXXX`), assigned role, expiration date, and status badge.
+    - One-click **Approve** (`POST /api/admin/invitations/:referenceCode/approve` with configurable `assignedRole` and `expiresInDays`) and **Revoke** (`POST /api/admin/invitations/:referenceCode/revoke`) actions with confirmation feedback and copyable reference code.
+  - **Agent Accounts & Membership Status Tab:**
+    - Directory powered by `GET /api/admin/accounts` showing agent name, email, canonical UUID (truncated with copy button), role (`member` / `admin`), membership status (`active` / `suspended` / `revoked`), active studio plan, and bonus credits.
+    - Inline role & status controls calling `PATCH /api/admin/accounts/:userId/membership` to promote/demote roles or immediately suspend/reactivate/revoke agent access.
+    - Optional administrator billing adjustment action calling `POST /api/admin/accounts/:userId/billing` (with generated `Idempotency-Key`) for approved tier upgrades or bonus credit grants.
+- **Data & API Contract (Already Implemented on Server):**
+  - `GET /api/admin/invitations` (optional `?status=`)
+  - `POST /api/admin/invitations/:referenceCode/approve`
+  - `POST /api/admin/invitations/:referenceCode/revoke`
+  - `GET /api/admin/accounts`
+  - `PATCH /api/admin/accounts/:userId/membership`
+  - `POST /api/admin/accounts/:userId/billing`
+  - All calls send `Authorization: Bearer <supabase_access_token>` and handle `403` / `503` gracefully.
+
+---
+
+### 5.11 Profile Monthly AI Credit Consumption Visualizer (`src/components/Profile.tsx`)
+- **Status:** `[ ] Planned`
+- **Priority:** High — Gives agents immediate visibility into their AI Studio quota and plan allowance directly inside their Profile view.
+- **Objective:** Extend `src/components/Profile.tsx` with a visual progress bar and/or consumption chart comparing monthly AI credit consumption against the agent's active plan limits using live data from `GET /api/studio/account`.
+- **Key UI & UX Elements:**
+  - **Live Account Integration:** Fetches `GET /api/studio/account` with the verified `Authorization: Bearer <token>` header (or accepts the account snapshot from `App.tsx`) with clean loading, unauthenticated, and pre-migration `503` fallback states.
+  - **Monthly Quota Progress Bar & Breakdown:**
+    - Displays `monthlyUsed` vs. `monthlyAllowance` (`plan.monthlyCredits + bonusCredits`) with percentage indicator (`tabular-nums`) and color thresholds (emerald `< 75%`, champagne gold `75–94%`, crimson `>= 95%`).
+    - Secondary daily safety cap indicator (`dailyUsed / dailyLimit`, `remainingDaily` available today).
+    - Compact action-type consumption breakdown chart (Chat `1 cr`, File `2 cr`, Image `5 cr`) aggregated from `recentUsage` (excluding `refunded` ledger rows) so agents can see where credits are spent.
+  - **Quick Action Link:** Direct button to open **AI Studio → Plans & Credits** (`onNavigate('studio')`) for viewing full ledger history and plan tiers.
+- **Data & API Contract (Already Implemented on Server):**
+  - `GET /api/studio/account` -> `account.plan` (`name`, `monthlyCredits`, `dailyLimit`), `account.bonusCredits`, `account.monthlyAllowance`, `account.monthlyUsed`, `account.remainingCredits`, `account.dailyUsed`, `account.remainingDaily`, and `account.recentUsage`.
+
+---
+
 ## Recommended Next-Wave Loan Broker Features (Phase 2 Backlog)
 
 | ID | Feature | Why It Matters for Loan Brokers & Affiliates | Status |
@@ -65,14 +106,15 @@ Use this document to track upcoming portal features, component specifications, d
 | **5.5** | **Live Google Drive Asset Browser** | Wire Google OAuth (`drive.readonly`) into Marketing Vault so brokers can search, filter, and download real Moonshine Capital decks, rate sheets, and scripts directly from Google Drive. | `[ ] Planned` |
 | **5.6** | **Commission & Funding Split Calculator** | Interactive slider tool letting aspiring/existing brokers model monthly agency income by deal size ($50K–$2M), deals/month, commission split %, and affiliate sub-broker overrides. | `[ ] Planned` |
 | **5.7** | **Searchable Lender Matrix & Program Filter** | Filterable directory of Moonshine Capital funding products (SBA, Term, LOC, Equipment, CRE/DSCR, Working Capital) by minimum FICO, time in business, monthly revenue, and max funding amount. | `[ ] Planned` |
-| **5.8** | **Deal Desk Submission Intake** | Structured deal submission form (borrower entity, funding product, requested amount, monthly deposits, notes) saved to SQLite with live status tracker (`Submitted` -> `In Underwriting` -> `Offer Out` -> `Funded`). | `[ ] Planned` |
+| **5.8** | **Deal Desk Submission Intake** | Structured deal submission form (borrower entity, funding product, requested amount, monthly deposits, notes) saved to Supabase with live status tracker (`Submitted` -> `In Underwriting` -> `Offer Out` -> `Funded`). | `[ ] Planned` |
 | **5.9** | **Affiliate Referral Link & Sub-Broker Tracker** | Unique partner invite link generator + tracking table showing recruited sub-affiliates, their onboarding completion %, and override commissions earned. | `[ ] Planned` |
-| **5.10** | **Admin Cohort & Invitation Manager** | Protected admin view to review `POST /api/invitations` applications from the Landing Page, approve brokers, and issue one-click cohort invite codes. | `[ ] Planned` |
+| **5.10** | **Admin Dashboard (`AdminDashboard.tsx`)** | Protected admin UI leveraging `/api/admin/accounts` and `/api/admin/invitations` to review/approve/revoke invitations, manage agent access, and update membership statuses. | `[ ] Planned` |
+| **5.11** | **Profile AI Credit Consumption Visual (`Profile.tsx`)** | Extend `Profile.tsx` with a monthly AI credit progress bar and usage chart comparing consumption against plan limits via `/api/studio/account`. | `[ ] Planned` |
 
 ---
 
 ## Suggested Build Sequence
-1. **Sprint A (Brand & Conversion Alignment):** `5.4` Loan Broker Copy Refactor + Bespoke Commercial Finance Imagery.
-2. **Sprint B (Engagement & Learning Core):** `5.3` Start Module Video Modal + `5.1` Network Leaderboard + `5.2` Notification Center.
-3. **Sprint C (Broker Utility & Real Assets):** `5.5` Live Google Drive OAuth Search + `5.6` Commission Calculator + `5.7` Lender Matrix.
-4. **Sprint D (Operations & Scale):** `5.8` Deal Desk Intake + `5.9` Affiliate Link Tracker + `5.10` Admin Invitation Review.
+1. **Sprint A (Admin & Usage Visibility — Backend Ready):** `5.10` `AdminDashboard.tsx` + `5.11` Profile Monthly AI Credit Consumption Visualizer.
+2. **Sprint B (Brand & Conversion Alignment):** `5.4` Loan Broker Copy Refactor + Bespoke Commercial Finance Imagery.
+3. **Sprint C (Engagement & Learning Core):** `5.3` Start Module Video Modal + `5.1` Network Leaderboard + `5.2` Notification Center.
+4. **Sprint D (Broker Utility, Assets & Operations):** `5.5` Live Google Drive OAuth Search + `5.6` Commission Calculator + `5.7` Lender Matrix + `5.8` Deal Desk Intake + `5.9` Affiliate Link Tracker.
