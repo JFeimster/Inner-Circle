@@ -23,7 +23,20 @@ import {
   Circle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Milestone, Resource, ResourceCategory, RoadmapWeek, SuccessStory, Challenge } from './types';
+import { AgentProfile, Milestone, Resource, ResourceCategory, RoadmapWeek, SuccessStory, Challenge } from './types';
+import BlueprintDocsPage from './pages/BlueprintDocsPage';
+import Profile from './components/Profile';
+
+const INITIAL_PROFILE: AgentProfile = {
+  name: 'Jason Feimster',
+  role: 'Elite Agent · Inner Circle',
+  email: 'jasonfeimster@gmail.com',
+  territory: 'West Coast Luxury Markets',
+  cohort: 'Cohort Q4 2026',
+  mentorName: 'David Sterling',
+  bio: 'Luxury capital and real estate advisor focused on high-net-worth private placements, off-market acquisitions, and relationship-led deal execution.',
+  avatar: '/src/assets/images/avatar_agent_profile_1795586852526.jpg',
+};
 
 // Mock Data
 const INITIAL_MILESTONES: Milestone[] = [
@@ -38,10 +51,10 @@ const SUCCESS_STORIES: SuccessStory[] = [
   { id: '3', agentName: 'Elena Rodriguez', achievement: '10th successful closing this month', avatar: 'https://i.pravatar.cc/150?u=elena', timestamp: '1d ago' },
 ];
 
-const CHALLENGES: Challenge[] = [
-  { id: '1', title: 'Complete Profile', reward: 'Moonshine Badge', points: 50 },
-  { id: '2', title: 'Watch Intro Video', reward: 'Early Access', points: 100 },
-  { id: '3', title: 'Join Community', reward: 'Network Points', points: 75 },
+const INITIAL_CHALLENGES: Challenge[] = [
+  { id: '1', title: 'Complete Profile', reward: 'Moonshine Badge', points: 50, completed: true },
+  { id: '2', title: 'Watch Intro Video', reward: 'Early Access', points: 100, completed: true },
+  { id: '3', title: 'Join Community', reward: 'Network Points', points: 75, completed: false },
 ];
 
 const RESOURCE_CATEGORIES: ResourceCategory[] = [
@@ -150,50 +163,114 @@ const ROADMAP: RoadmapWeek[] = [
 ];
 
 export default function App() {
-  const [activeView, setActiveView] = useState<'dashboard' | 'roadmap' | 'resources'>('dashboard');
+  const [activeView, setActiveView] = useState<'dashboard' | 'roadmap' | 'resources' | 'docs' | 'profile'>('dashboard');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [agentProfile, setAgentProfile] = useState<AgentProfile>(INITIAL_PROFILE);
+  const [milestones, setMilestones] = useState<Milestone[]>(INITIAL_MILESTONES);
+  const [roadmap, setRoadmap] = useState<RoadmapWeek[]>(ROADMAP);
+  const [challenges, setChallenges] = useState<Challenge[]>(INITIAL_CHALLENGES);
 
   const filteredResources = selectedCategory 
     ? RESOURCES.filter(r => r.category === selectedCategory)
     : RESOURCES;
 
+  const earnedChallengePoints = challenges
+    .filter(c => c.completed)
+    .reduce((sum, c) => sum + c.points, 0);
+
+  const handleToggleMilestone = (milestoneId: string) => {
+    setMilestones(prev =>
+      prev.map(m => (m.id === milestoneId ? { ...m, completed: !m.completed } : m))
+    );
+  };
+
+  const handleToggleChallenge = (challengeId: string) => {
+    setChallenges(prev =>
+      prev.map(c => (c.id === challengeId ? { ...c, completed: !c.completed } : c))
+    );
+  };
+
+  const handleToggleRoadmapStep = (weekNum: number, stepId: string) => {
+    setRoadmap(prev =>
+      prev.map(w =>
+        w.week === weekNum
+          ? {
+              ...w,
+              steps: w.steps.map(s =>
+                s.id === stepId ? { ...s, completed: !s.completed } : s
+              ),
+            }
+          : w
+      )
+    );
+  };
+
   return (
     <div className="min-h-screen bg-elite-black text-white selection:bg-gold selection:text-elite-black font-sans">
       {/* Navigation */}
-      <nav className="fixed top-0 w-full z-50 glass border-b border-white/5 px-6 py-4 flex justify-between items-center">
-        <div className="flex items-center gap-2 cursor-pointer" onClick={() => setActiveView('dashboard')}>
+      <nav className="fixed top-0 w-full z-50 glass border-b border-white/5 px-6 py-3.5 flex justify-between items-center gap-8">
+        <button
+          type="button"
+          className="flex items-center gap-2.5 cursor-pointer whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold rounded-full"
+          onClick={() => setActiveView('dashboard')}
+        >
           <div className="w-8 h-8 gold-gradient rounded-full flex items-center justify-center shadow-lg">
             <span className="text-elite-black font-bold text-xs">MC</span>
           </div>
           <span className="font-display text-xl tracking-widest text-gold uppercase">Moonshine Capital</span>
-        </div>
-        <div className="hidden md:flex gap-8 text-sm font-medium tracking-widest uppercase opacity-60">
+        </button>
+        <div className="hidden md:flex items-center gap-8 text-sm font-medium tracking-wide text-white/65">
           <button 
+            type="button"
             onClick={() => setActiveView('dashboard')}
-            className={`hover:text-gold transition-colors ${activeView === 'dashboard' ? 'text-gold opacity-100' : ''}`}
+            className={`hover:text-gold transition-colors whitespace-nowrap shrink-0 ${activeView === 'dashboard' ? 'text-gold' : ''}`}
           >
             Dashboard
           </button>
           <button 
+            type="button"
             onClick={() => setActiveView('roadmap')}
-            className={`hover:text-gold transition-colors ${activeView === 'roadmap' ? 'text-gold opacity-100' : ''}`}
+            className={`hover:text-gold transition-colors whitespace-nowrap shrink-0 ${activeView === 'roadmap' ? 'text-gold' : ''}`}
           >
             30-Day Roadmap
           </button>
           <button 
+            type="button"
             onClick={() => setActiveView('resources')}
-            className={`hover:text-gold transition-colors ${activeView === 'resources' ? 'text-gold opacity-100' : ''}`}
+            className={`hover:text-gold transition-colors whitespace-nowrap shrink-0 ${activeView === 'resources' ? 'text-gold' : ''}`}
           >
             Resource Center
           </button>
+          <button 
+            type="button"
+            onClick={() => setActiveView('docs')}
+            className={`hover:text-gold transition-colors whitespace-nowrap shrink-0 ${activeView === 'docs' ? 'text-gold' : ''}`}
+          >
+            Blueprint Docs
+          </button>
         </div>
-        <div className="flex items-center gap-4">
+        <button
+          type="button"
+          onClick={() => setActiveView('profile')}
+          aria-label="Open agent profile"
+          aria-current={activeView === 'profile' ? 'page' : undefined}
+          className={`flex items-center gap-3 pl-3 pr-1.5 py-1 rounded-full border transition-colors whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold ${
+            activeView === 'profile'
+              ? 'border-gold/60 bg-gold/10'
+              : 'border-white/10 hover:border-gold/40 hover:bg-white/5'
+          }`}
+        >
           <div className="text-right hidden sm:block">
-            <p className="text-xs font-bold text-gold">ELITE AGENT</p>
-            <p className="text-[10px] opacity-50 uppercase">Jason Feimster</p>
+            <p className="text-xs font-medium text-white leading-tight">{agentProfile.name}</p>
+            <p className="text-[11px] text-gold/80 leading-tight">{agentProfile.role.split('·')[0].trim()}</p>
           </div>
-          <img src="https://i.pravatar.cc/150?u=jason" alt="Avatar" className="w-10 h-10 rounded-full border border-gold/30" />
-        </div>
+          <img
+            src={agentProfile.avatar}
+            alt={agentProfile.name}
+            referrerPolicy="no-referrer"
+            className="w-9 h-9 rounded-full object-cover border border-gold/40"
+          />
+        </button>
       </nav>
 
       <main className="pt-24 pb-12 px-6 max-w-7xl mx-auto">
@@ -272,14 +349,19 @@ export default function App() {
                     Milestones
                   </h3>
                   <div className="space-y-6">
-                    {INITIAL_MILESTONES.map((m) => (
-                      <div key={m.id} className="relative pl-8 border-l border-white/10 pb-6 last:pb-0">
-                        <div className={`absolute -left-[9px] top-0 w-4 h-4 rounded-full border-2 border-elite-black ${m.completed ? 'bg-green' : 'bg-white/20'}`}>
+                    {milestones.map((m) => (
+                      <button
+                        type="button"
+                        key={m.id}
+                        onClick={() => handleToggleMilestone(m.id)}
+                        className="w-full text-left relative pl-8 border-l border-white/10 pb-6 last:pb-0 group"
+                      >
+                        <div className={`absolute -left-[9px] top-0 w-4 h-4 rounded-full border-2 border-elite-black ${m.completed ? 'bg-green' : 'bg-white/20 group-hover:bg-gold/50 transition-colors'}`}>
                           {m.completed && <CheckCircle2 size={10} className="text-white absolute inset-0 m-auto" />}
                         </div>
-                        <h4 className={`text-sm font-bold ${m.completed ? 'text-white' : 'opacity-40'}`}>{m.title}</h4>
+                        <h4 className={`text-sm font-bold ${m.completed ? 'text-white' : 'opacity-40 group-hover:opacity-75 transition-opacity'}`}>{m.title}</h4>
                         <p className="text-xs opacity-40 mt-1">{m.description}</p>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </section>
@@ -290,19 +372,28 @@ export default function App() {
                       <Zap className="text-purple" size={20} />
                       Quick Wins
                     </h3>
-                    <span className="text-[10px] font-bold bg-purple px-2 py-1 rounded">225 PTS</span>
+                    <span className="text-xs font-semibold text-gold tabular-nums">{earnedChallengePoints} PTS</span>
                   </div>
                   <div className="space-y-3">
-                    {CHALLENGES.map((c) => (
-                      <div key={c.id} className="p-4 bg-white/5 rounded-2xl flex justify-between items-center hover:bg-white/10 transition-colors cursor-pointer">
+                    {challenges.map((c) => (
+                      <button
+                        type="button"
+                        key={c.id}
+                        onClick={() => handleToggleChallenge(c.id)}
+                        className={`w-full text-left p-4 rounded-2xl flex justify-between items-center transition-colors cursor-pointer ${
+                          c.completed ? 'bg-green/10 border border-green/25' : 'bg-white/5 hover:bg-white/10 border border-transparent'
+                        }`}
+                      >
                         <div>
                           <p className="text-sm font-medium">{c.title}</p>
                           <p className="text-[10px] text-gold uppercase font-bold">{c.reward}</p>
                         </div>
-                        <div className="text-right">
-                          <p className="text-xs font-bold">+{c.points}</p>
+                        <div className="text-right tabular-nums">
+                          <p className={`text-xs font-bold ${c.completed ? 'text-green' : 'text-white'}`}>
+                            {c.completed ? 'Done' : `+${c.points}`}
+                          </p>
                         </div>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </section>
@@ -335,7 +426,7 @@ export default function App() {
               </div>
 
               <div className="grid grid-cols-1 gap-12">
-                {ROADMAP.map((week) => (
+                {roadmap.map((week) => (
                   <div key={week.week} className="relative">
                     <div className="flex flex-col md:flex-row gap-8">
                       <div className="md:w-64 flex-shrink-0">
@@ -358,20 +449,27 @@ export default function App() {
                             key={step.id} 
                             className={`p-6 rounded-3xl border transition-all flex items-start gap-4 ${step.completed ? 'bg-green/10 border-green/30' : 'glass border-white/5 hover:border-gold/20'}`}
                           >
-                            <div className={`mt-1 flex-shrink-0 w-5 h-5 rounded-full border flex items-center justify-center ${step.completed ? 'bg-green border-green' : 'border-white/20'}`}>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleRoadmapStep(week.week, step.id)}
+                              aria-label={`Toggle ${step.title}`}
+                              className={`mt-1 flex-shrink-0 w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${step.completed ? 'bg-green border-green' : 'border-white/20 hover:border-gold'}`}
+                            >
                               {step.completed && <CheckCircle2 size={12} className="text-white" />}
-                            </div>
+                            </button>
                             <div className="flex-1">
                               <h4 className={`text-sm font-medium ${step.completed ? 'text-white' : 'opacity-80'}`}>{step.title}</h4>
                               <div className="mt-4 flex items-center justify-between">
                                 <span className={`text-[10px] uppercase tracking-widest font-bold ${step.isAction ? 'text-gold' : 'text-purple'}`}>
                                   {step.isAction ? 'Action Required' : 'Knowledge Base'}
                                 </span>
-                                {!step.completed && (
-                                  <button className="text-[10px] uppercase tracking-widest font-bold opacity-40 hover:opacity-100 transition-opacity">
-                                    Mark Done
-                                  </button>
-                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleRoadmapStep(week.week, step.id)}
+                                  className="text-[10px] uppercase tracking-widest font-bold opacity-50 hover:opacity-100 transition-opacity"
+                                >
+                                  {step.completed ? 'Completed' : 'Mark Done'}
+                                </button>
                               </div>
                             </div>
                           </div>
@@ -486,6 +584,21 @@ export default function App() {
               </div>
             </motion.div>
           )}
+
+          {activeView === 'docs' && <BlueprintDocsPage />}
+
+          {activeView === 'profile' && (
+            <Profile
+              profile={agentProfile}
+              milestones={milestones}
+              roadmap={roadmap}
+              challenges={challenges}
+              onUpdateProfile={setAgentProfile}
+              onToggleMilestone={handleToggleMilestone}
+              onToggleChallenge={handleToggleChallenge}
+              onNavigate={setActiveView}
+            />
+          )}
         </AnimatePresence>
       </main>
 
@@ -508,6 +621,7 @@ export default function App() {
         <div className="max-w-7xl mx-auto mt-12 pt-8 border-t border-white/5 flex justify-between items-center text-[10px] opacity-30 uppercase tracking-[0.2em]">
           <p>© 2026 Moonshine Capital. All Rights Reserved.</p>
           <div className="flex gap-6">
+            <button onClick={() => setActiveView('docs')} className="hover:text-gold transition-colors uppercase">Blueprint Docs</button>
             <a href="#">Privacy</a>
             <a href="#">Terms</a>
             <a href="#">Compliance</a>

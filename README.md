@@ -1,20 +1,33 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Moonshine Capital — Agent Onboarding Experience
 
-# Run and deploy your AI Studio app
+A premium agent onboarding portal built with **React 19**, **TypeScript**, **Vite 6**, **Tailwind CSS v4**, and **Motion**.
 
-This contains everything you need to run your app locally.
+## Architecture & Planning Documentation
 
-View your app in AI Studio: https://ai.studio/apps/6b15786a-c96d-44ce-bd71-03ee5f4d454a
+All strategy, pricing, OAuth, workflow, and site-expansion guides are organized in order inside [`/docs`](./docs/README.md) (and can also be browsed directly inside the app via the **Blueprint Docs** link in the footer):
+
+1. [01 — Authentication Strategy, Tech Stack & Design Styles](./docs/01-architecture-auth-and-design-styles.md)
+2. [02 — Firebase Costs, Pass-Through Details & Auth Alternatives](./docs/02-firebase-costs-and-auth-alternatives.md)
+3. [03 — Self-Serve OAuth 2.0 Setup Guide & Provider Catalog](./docs/03-self-serve-oauth-guide-and-providers.md)
+4. [04 — Automated Onboarding Workflows & Selected Stack](./docs/04-automated-onboarding-workflows.md)
+5. [05 — Complete Blueprint of Additional Pages & Supporting Files](./docs/05-site-pages-and-files-blueprint.md)
+6. [06 — Searching & Surfacing Available Site Assets](./docs/06-asset-search-and-discovery.md)
+
+See also [`config/integrations.yaml`](./config/integrations.yaml) for the declarative catalog of planned integrations across Phases 1–3.
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
-
+**Prerequisites:** Node.js
 
 1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+   ```bash
+   npm install
+   ```
+2. Run the development server:
+   ```bash
+   npm run dev
+   ```
+3. Build for production:
+   ```bash
+   npm run build
+   ```

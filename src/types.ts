@@ -49,4 +49,16 @@ export interface Challenge {
   title: string;
   reward: string;
   points: number;
+  completed: boolean;
+}
+
+export interface AgentProfile {
+  name: string;
+  role: string;
+  email: string;
+  territory: string;
+  cohort: string;
+  mentorName: string;
+  bio: string;
+  avatar: string;
 }

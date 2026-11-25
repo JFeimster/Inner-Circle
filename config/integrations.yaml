@@ -1,0 +1,106 @@
+# Moonshine Capital — Selected Integrations Catalog
+# Declarative reference for planned Self-Serve OAuth 2.0 & Webhook integrations.
+
+app:
+  name: Moonshine Onboarding
+  oauth_callbacks:
+    development: https://ais-dev-g4iyhhj5beqjw3urn4qxbq-35146424509.us-west1.run.app/auth/callback
+    production: https://ais-pre-g4iyhhj5beqjw3urn4qxbq-35146424509.us-west1.run.app/auth/callback
+
+phases:
+  phase_1_foundation:
+    - id: google_workspace
+      category: Auth, Calendar, Drive & Email
+      providers: [Google OAuth, Google Calendar, Google Drive, Gmail]
+      status: planned
+      use_cases:
+        - Member sign-in & profile avatar sync
+        - Auto-clone Moonshine Agent Starter Folder in Drive
+        - Master Event Calendar & mentor session booking
+        - Week 3 outreach script drafts in Gmail
+
+    - id: slack
+      category: Community & Network Proof
+      status: planned
+      use_cases:
+        - Verify Join Community quick-win
+        - Post welcome intro in #introductions
+        - Pull #wins into Network Success feed
+
+    - id: discord
+      category: Community & Network Proof
+      status: planned
+      use_cases:
+        - Assign verified Elite Agent role
+        - Unlock private milestone tier channels
+
+    - id: vimeo
+      category: Video Training
+      status: planned
+      use_cases:
+        - Host private Founder Welcome & Resource Vault modules
+        - Track watch completion for Quick-Win points
+
+    - id: notion
+      category: Operations CMS
+      status: planned
+      use_cases:
+        - Manage 30-Day Roadmap steps, active listings, and Resource Vault without code edits
+
+  phase_2_pipeline_and_marketing:
+    - id: hubspot
+      category: CRM & Pipeline
+      status: planned
+      use_cases:
+        - Auto-verify First Lead and First Deal milestones
+        - Sync agent leads and Week 3 follow-up sequences
+
+    - id: canva
+      category: Marketing Vault
+      status: planned
+      use_cases:
+        - Launch branded social & presentation templates pre-filled with agent details
+
+    - id: linkedin
+      category: Marketing Vault & Social
+      status: planned
+      use_cases:
+        - Publish Day 1 "Just Joined Moonshine Capital" announcements
+
+    - id: meta
+      category: Marketing Vault & Social
+      status: planned
+      requirements:
+        - Live /privacy and /data-deletion pages required for OAuth approval
+      use_cases:
+        - Publish approved listing & brand graphics to Instagram/Facebook
+
+    - id: mailchimp
+      category: Email Marketing
+      status: planned
+      use_cases:
+        - Co-branded launch announcement & luxury market newsletters
+
+    - id: swag_fulfillment
+      category: Swag Kit Fulfillment
+      options: [Printful, Shopify]
+      status: planned
+      use_cases:
+        - Auto-ship Week 1 Welcome Swag Kit
+        - Unlock Inner Circle apparel tier after First Deal closes
+
+  phase_3_transactions_and_payouts:
+    - id: esignature
+      category: Compliance & Agreements (Optional)
+      options: [DocuSign, Dropbox Sign]
+      status: planned
+      use_cases:
+        - Automate ICA, NDA, and W-9 onboarding signatures
+        - Verify first executed deal contract
+
+    - id: stripe_connect
+      category: Commissions & Payouts
+      status: planned
+      use_cases:
+        - Commission disbursements, referral bonuses, or seat dues
+        - Auto-unlock First Commission milestone
