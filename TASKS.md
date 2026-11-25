@@ -21,4 +21,11 @@
 - [ ] Configure Vercel Environment Variables (`VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY`).
 - [ ] Bootstrap the initial `admin` user in `public.agent_accounts` after verifying the founding admin's email in Supabase Auth.
 - [ ] Trigger Vercel deployment from `https://github.com/JFeimster/Inner-Circle` and verify `GET /api/health`.
-- [ ] *(When ready)* Activate live Gemini (`GEMINI_API_KEY` + `AI_STUDIO_LIVE_ENABLED=true`) and live Stripe billing (`BILLING_WEBHOOK_SECRET`).
+- [ ] *(When ready)* Activate live Gemini (`GEMINI_API_KEY` + `AI_STUDIO_LIVE_ENABLED=true`) and live billing (`BILLING_WEBHOOK_SECRET`).
+
+# Phase 3 targeted hardening
+
+- [x] Local implementation: configuration gates, database migration, distributed rate limits, credit lifecycle, admin workspace, tests, and documentation.
+- [ ] Review `20261125000300_phase3_hardening.sql` on a local Supabase instance and run `tests/postgres.integration.ts` against loopback PostgreSQL.
+- [ ] Review production environment variables and apply the three migrations to the dedicated Inner Circle project only, after explicit authorization.
+- [ ] Activate AI and billing only after separate production approval and integration verification.

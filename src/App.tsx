@@ -29,6 +29,7 @@ import AIStudioPage from './pages/AIStudioPage';
 import LandingPage from './pages/LandingPage';
 import OAuthLoginPage, { AuthenticatedMember } from './pages/OAuthLoginPage';
 import Profile from './components/Profile';
+import AdminWorkspace from './pages/AdminWorkspace';
 import agentProfileAvatar from './assets/images/avatar_agent_profile_1795586852526.jpg';
 import {
   completeAuthCallbackFromUrl,
@@ -175,13 +176,14 @@ const ROADMAP: RoadmapWeek[] = [
 export default function App() {
   const [authScreen, setAuthScreen] = useState<'landing' | 'login' | 'portal'>('landing');
   const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [memberRole, setMemberRole] = useState<'member' | 'admin'>('member');
   const [pendingOnboarding, setPendingOnboarding] = useState<{
     userId: string;
     email: string;
     accessToken: string;
   } | null>(null);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<'dashboard' | 'roadmap' | 'resources' | 'studio' | 'docs' | 'profile'>('dashboard');
+  const [activeView, setActiveView] = useState<'dashboard' | 'roadmap' | 'resources' | 'studio' | 'docs' | 'profile' | 'admin'>('dashboard');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [agentProfile, setAgentProfile] = useState<AgentProfile>(INITIAL_PROFILE);
   const [milestones, setMilestones] = useState<Milestone[]>(INITIAL_MILESTONES);
@@ -211,6 +213,7 @@ export default function App() {
         if (!data || !active) return;
 
         if (data.onboarded && data.membershipStatus === 'active' && data.account) {
+          setMemberRole(data.account.role === 'admin' ? 'admin' : 'member');
           setAccessToken(token);
           setPendingOnboarding(null);
           setAgentProfile((prev) => ({
@@ -267,6 +270,7 @@ export default function App() {
   }, []);
 
   const handleAuthenticated = (member: AuthenticatedMember) => {
+    setMemberRole(member.role);
     setAccessToken(member.accessToken);
     setPendingOnboarding(null);
     setAuthNotice(null);
@@ -284,6 +288,7 @@ export default function App() {
   const handleSignOut = async () => {
     await signOutSupabase().catch(() => {});
     setAccessToken(null);
+    setMemberRole('member');
     setPendingOnboarding(null);
     setAuthNotice(null);
     setAuthScreen('landing');
@@ -402,7 +407,13 @@ export default function App() {
           >
             Docs
           </button>
+          {memberRole === 'admin' && <button type="button" onClick={() => setActiveView('admin')}
+            className={`hover:text-gold transition-colors whitespace-nowrap shrink-0 ${activeView === 'admin' ? 'text-gold' : ''}`}>
+            Admin
+          </button>}
         </div>
+        {memberRole === 'admin' && <button type="button" onClick={() => setActiveView('admin')}
+          className="md:hidden text-xs uppercase tracking-widest text-gold">Admin</button>}
         <button
           type="button"
           onClick={() => setActiveView('profile')}
@@ -748,6 +759,7 @@ export default function App() {
           )}
 
           {activeView === 'docs' && <BlueprintDocsPage />}
+          {activeView === 'admin' && memberRole === 'admin' && accessToken && <AdminWorkspace accessToken={accessToken} />}
 
           {activeView === 'profile' && (
             <Profile

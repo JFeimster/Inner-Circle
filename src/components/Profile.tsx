@@ -18,7 +18,7 @@ interface ProfileProps {
   onUpdateProfile: (updated: AgentProfile) => void;
   onToggleMilestone: (milestoneId: string) => void;
   onToggleChallenge: (challengeId: string) => void;
-  onNavigate: (view: 'dashboard' | 'roadmap' | 'resources' | 'studio' | 'docs' | 'profile') => void;
+  onNavigate: (view: 'dashboard' | 'roadmap' | 'resources' | 'studio' | 'docs' | 'profile' | 'admin') => void;
   onSignOut?: () => void;
   onViewPublicLanding?: () => void;
 }

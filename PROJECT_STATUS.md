@@ -27,7 +27,11 @@
 - **Target Review Branch:** Export/sync source changes to non-production branch `phase-2-supabase-hardening` (do not push directly to `main`).
 
 ## Remaining Blockers Before Production Activation
-1. Operator must run the two SQL migrations in `/supabase/migrations/` on `thdnmgmojhhhtjlhbwvn` (and optionally run a staging concurrency check against real Postgres `FOR UPDATE` RPCs).
+1. Operator must review and run the three SQL migrations in `/supabase/migrations/` on `thdnmgmojhhhtjlhbwvn` after local PostgreSQL checks.
 2. Operator must configure Supabase Auth URL settings (Site URL + `/auth/callback` redirect allowlist) and SMTP/email delivery if scaling beyond default Auth email limits.
 3. Operator must add environment variables in Vercel Project Settings and bootstrap the founding `admin` row in `public.agent_accounts` (see `docs/security.md` §5).
 4. Live Gemini (`AI_STUDIO_LIVE_ENABLED=true` + `GEMINI_API_KEY`) and live billing (`BILLING_WEBHOOK_SECRET`) remain intentionally inactive until operator sign-off.
+
+# Phase 3 review status (2026-11-25)
+
+Targeted production hardening is prepared locally on `phase-2-supabase-hardening`. The migration and PostgreSQL integration suite are review artifacts; no remote migration, push, merge, deployment, paid service activation, or external infrastructure modification has been performed. `AI_STUDIO_LIVE_ENABLED` remains `false` in the environment template and `BILLING_WEBHOOK_SECRET` remains blank. Local PostgreSQL/Supabase verification and production activation remain pending.

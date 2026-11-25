@@ -168,7 +168,7 @@ function createGeminiGenerator(config: ServerConfig): AiGenerator {
       ];
 
       const response = await ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
+        model: config.geminiChatModel,
         contents,
         config: {
           systemInstruction:
@@ -184,7 +184,7 @@ function createGeminiGenerator(config: ServerConfig): AiGenerator {
     async image(prompt, aspectRatio) {
       const ai = getClient();
       const response = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-lite-image',
+        model: config.geminiImageModel,
         contents: {
           parts: [
             {
@@ -219,7 +219,7 @@ function createGeminiGenerator(config: ServerConfig): AiGenerator {
     async file(prompt, format) {
       const ai = getClient();
       const response = await ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
+        model: config.geminiFileModel,
         contents: `Create a polished, ready-to-use .${format} file for a Moonshine Capital funding broker and capital advisory partner based on this request:\n\n${prompt}`,
         config: {
           systemInstruction:
@@ -264,13 +264,13 @@ async function buildAccountSnapshot(store: InnerCircleStore, account: AgentAccou
   const plan = getPlan(account.plan_id);
   const { monthKey, dayKey } = getDateKeys();
 
-  const [{ monthlyUsed, dailyUsed }, recentUsage] = await Promise.all([
+  const [{ monthlyUsed, dailyUsed, monthlyPurchasedUsed }, recentUsage] = await Promise.all([
     store.getUsageTotals(account.user_id, monthKey, dayKey),
     store.getRecentUsage(account.user_id, 15),
   ]);
 
-  const monthlyAllowance = plan.monthlyCredits + account.bonus_credits;
-  const remainingCredits = Math.max(0, monthlyAllowance - monthlyUsed);
+  const remainingCredits = Math.max(0, plan.monthlyCredits - (monthlyUsed - monthlyPurchasedUsed)) + account.bonus_credits;
+  const monthlyAllowance = monthlyUsed + remainingCredits;
   const remainingDaily = Math.max(0, plan.dailyLimit - dailyUsed);
 
   return {
@@ -299,25 +299,29 @@ function getIdempotencyKey(req: Request): string {
   return `auto-${crypto.randomUUID()}`;
 }
 
+function hasValidIdempotencyKey(req: Request): boolean {
+  return /^[a-zA-Z0-9._:-]{8,128}$/.test((req.header('idempotency-key') || '').trim());
+}
+
 function mapAiErrorToSafeResponse(err: unknown): { status: number; message: string; reason: string } {
   const raw = err instanceof Error ? err.message : '';
   if (raw === 'AI_GENERATION_UNAVAILABLE') {
     return {
       status: 503,
-      message: 'AI Studio generation is currently disabled in this environment. Your reserved credits were refunded.',
+      message: 'AI Studio generation is currently disabled in this environment.',
       reason: 'ai_generation_disabled',
     };
   }
   if (raw.includes('RESOURCE_EXHAUSTED') || raw.includes('429')) {
     return {
       status: 429,
-      message: 'AI service is temporarily busy. Your reserved credits were refunded—please retry shortly.',
+      message: 'AI service is temporarily busy. Please retry shortly.',
       reason: 'upstream_rate_limit',
     };
   }
   return {
     status: 502,
-    message: 'Unable to complete the AI request. Your reserved credits were automatically refunded.',
+    message: 'Unable to complete the AI request.',
     reason: 'generation_failed',
   };
 }
@@ -365,12 +369,19 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
   const aiGenerator: AiGenerator = options.aiGenerator ?? createGeminiGenerator(config);
 
   const resolveStore = async (): Promise<InnerCircleStore> => {
-    if (options.store) return options.store;
     const configErr = assertValidProductionConfig(config);
     if (configErr) {
       throw new Error('SERVER_CONFIG_INCOMPLETE');
     }
+    if (options.store) return options.store;
     return getConfiguredStore(config);
+  };
+
+  const consumeLimit = async (key: string, limit: number, seconds: number) => {
+    const store = await resolveStore();
+    return store.driver === 'supabase'
+      ? store.consumeRateLimit(key, limit, seconds)
+      : (key.startsWith('invite:') ? publicLimiter : studioLimiter).consume(key);
   };
 
   const app = express();
@@ -454,6 +465,20 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
     next();
   };
 
+  const limitAdminMutation = async (req: AuthedRequest, res: Response, next: NextFunction) => {
+    try {
+      const rate = await consumeLimit(`admin:${req.account!.user_id}`, 30, 60);
+      if (!rate.allowed) {
+        res.setHeader('Retry-After', String(rate.retryAfterSeconds));
+        res.status(429).json({ error: 'Administrator rate limit exceeded.' });
+        return;
+      }
+      next();
+    } catch {
+      res.status(503).json({ error: 'Service temporarily unavailable.' });
+    }
+  };
+
   // --- 1. Strictly Non-Mutating Health Check ---
   app.get('/api/health', async (_req: Request, res: Response) => {
     try {
@@ -496,18 +521,19 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
       const identity = req.identity!;
       const store = await resolveStore();
       const account = await store.getAccountByUserId(identity.userId);
-      const snapshot = account ? await buildAccountSnapshot(store, account) : null;
+      const snapshot = account?.membership_status === 'active'
+        ? await buildAccountSnapshot(store, account) : null;
 
       res.json({
         authenticated: true,
         user: {
           id: identity.userId,
           email: identity.email,
-          name: account?.name ?? identity.name ?? identity.email.split('@')[0],
+          name: account?.membership_status === 'active' ? account.name : (identity.name ?? identity.email.split('@')[0]),
         },
         onboarded: Boolean(account),
         membershipStatus: account?.membership_status ?? null,
-        role: account?.role ?? null,
+        role: account?.membership_status === 'active' ? account.role : null,
         account: snapshot,
       });
     } catch {
@@ -518,7 +544,9 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
   // --- 4. Invitation-Based Agent Onboarding ---
   app.post('/api/invitations', async (req: Request, res: Response) => {
     const clientIp = req.ip || 'unknown';
-    const rate = publicLimiter.consume(`invite:${clientIp}`);
+    let rate;
+    try { rate = await consumeLimit(`invite:${crypto.createHash('sha256').update(clientIp).digest('hex')}`, 15, 60); }
+    catch { res.status(503).json({ error: 'Service temporarily unavailable.' }); return; }
     if (!rate.allowed) {
       res.setHeader('Retry-After', String(rate.retryAfterSeconds));
       res.status(429).json({ error: 'Too many invitation requests. Please try again shortly.' });
@@ -574,7 +602,13 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
     requireVerifiedAuth,
     async (req: AuthedRequest, res: Response) => {
       const identity = req.identity!;
-      const rate = studioLimiter.consume(`redeem:${identity.userId}`);
+      if (!identity.emailVerified) {
+        res.status(403).json({ error: 'Verify your email before redeeming an invitation.' });
+        return;
+      }
+      let rate;
+      try { rate = await consumeLimit(`redeem:${identity.userId}`, 10, 60); }
+      catch { res.status(503).json({ error: 'Service temporarily unavailable.' }); return; }
       if (!rate.allowed) {
         res.setHeader('Retry-After', String(rate.retryAfterSeconds));
         res.status(429).json({ error: 'Too many redemption attempts. Please wait and retry.' });
@@ -685,7 +719,17 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
     requireActiveMember,
     async (req: AuthedRequest, res: Response) => {
       const account = req.account!;
-      const rate = studioLimiter.consume(`studio:${account.user_id}`);
+      if (!config.aiGenerationEnabled) {
+        res.status(503).json({ error: 'AI generation is not enabled.' });
+        return;
+      }
+      if (!hasValidIdempotencyKey(req)) {
+        res.status(400).json({ error: 'A valid Idempotency-Key header is required.' });
+        return;
+      }
+      let rate;
+      try { rate = await consumeLimit(`studio:${account.user_id}`, 30, 60); }
+      catch { res.status(503).json({ error: 'Service temporarily unavailable.' }); return; }
       if (!rate.allowed) {
         res.setHeader('Retry-After', String(rate.retryAfterSeconds));
         res.status(429).json({ error: 'Rate limit exceeded. Please pause briefly before sending another request.' });
@@ -745,7 +789,9 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
 
       try {
         const { reply } = await aiGenerator.chat(message, cleanHistory);
-        await store.finalizeReservation(reservation.ledgerId, account.user_id);
+        if (!await store.finalizeReservation(reservation.ledgerId, account.user_id)) {
+          throw new Error('FINALIZE_FAILED');
+        }
         const freshAccount = (await store.getAccountByUserId(account.user_id)) ?? account;
         res.json({
           reply,
@@ -755,11 +801,11 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
         });
       } catch (err) {
         const safe = mapAiErrorToSafeResponse(err);
-        await store.refundReservation(reservation.ledgerId, account.user_id, safe.reason).catch(() => {});
+        const refunded = await store.refundReservation(reservation.ledgerId, account.user_id, safe.reason).catch(() => false);
         const freshAccount = (await store.getAccountByUserId(account.user_id)) ?? account;
         res.status(safe.status).json({
           error: safe.message,
-          refunded: true,
+          refunded,
           account: await buildAccountSnapshot(store, freshAccount),
         });
       }
@@ -772,7 +818,17 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
     requireActiveMember,
     async (req: AuthedRequest, res: Response) => {
       const account = req.account!;
-      const rate = studioLimiter.consume(`studio:${account.user_id}`);
+      if (!config.aiGenerationEnabled) {
+        res.status(503).json({ error: 'AI generation is not enabled.' });
+        return;
+      }
+      if (!hasValidIdempotencyKey(req)) {
+        res.status(400).json({ error: 'A valid Idempotency-Key header is required.' });
+        return;
+      }
+      let rate;
+      try { rate = await consumeLimit(`studio:${account.user_id}`, 30, 60); }
+      catch { res.status(503).json({ error: 'Service temporarily unavailable.' }); return; }
       if (!rate.allowed) {
         res.setHeader('Retry-After', String(rate.retryAfterSeconds));
         res.status(429).json({ error: 'Rate limit exceeded. Please pause briefly before generating another visual.' });
@@ -826,7 +882,9 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
 
       try {
         const { imageUrl, caption } = await aiGenerator.image(prompt, aspectRatio);
-        await store.finalizeReservation(reservation.ledgerId, account.user_id);
+        if (!await store.finalizeReservation(reservation.ledgerId, account.user_id)) {
+          throw new Error('FINALIZE_FAILED');
+        }
         const freshAccount = (await store.getAccountByUserId(account.user_id)) ?? account;
         res.json({
           imageUrl,
@@ -838,11 +896,11 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
         });
       } catch (err) {
         const safe = mapAiErrorToSafeResponse(err);
-        await store.refundReservation(reservation.ledgerId, account.user_id, safe.reason).catch(() => {});
+        const refunded = await store.refundReservation(reservation.ledgerId, account.user_id, safe.reason).catch(() => false);
         const freshAccount = (await store.getAccountByUserId(account.user_id)) ?? account;
         res.status(safe.status).json({
           error: safe.message,
-          refunded: true,
+          refunded,
           account: await buildAccountSnapshot(store, freshAccount),
         });
       }
@@ -855,7 +913,17 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
     requireActiveMember,
     async (req: AuthedRequest, res: Response) => {
       const account = req.account!;
-      const rate = studioLimiter.consume(`studio:${account.user_id}`);
+      if (!config.aiGenerationEnabled) {
+        res.status(503).json({ error: 'AI generation is not enabled.' });
+        return;
+      }
+      if (!hasValidIdempotencyKey(req)) {
+        res.status(400).json({ error: 'A valid Idempotency-Key header is required.' });
+        return;
+      }
+      let rate;
+      try { rate = await consumeLimit(`studio:${account.user_id}`, 30, 60); }
+      catch { res.status(503).json({ error: 'Service temporarily unavailable.' }); return; }
       if (!rate.allowed) {
         res.setHeader('Retry-After', String(rate.retryAfterSeconds));
         res.status(429).json({ error: 'Rate limit exceeded. Please pause briefly before creating another file.' });
@@ -917,7 +985,9 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
 
       try {
         const generated = await aiGenerator.file(prompt, format);
-        await store.finalizeReservation(reservation.ledgerId, account.user_id);
+        if (!await store.finalizeReservation(reservation.ledgerId, account.user_id)) {
+          throw new Error('FINALIZE_FAILED');
+        }
         const freshAccount = (await store.getAccountByUserId(account.user_id)) ?? account;
         res.json({
           file: {
@@ -931,11 +1001,11 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
         });
       } catch (err) {
         const safe = mapAiErrorToSafeResponse(err);
-        await store.refundReservation(reservation.ledgerId, account.user_id, safe.reason).catch(() => {});
+        const refunded = await store.refundReservation(reservation.ledgerId, account.user_id, safe.reason).catch(() => false);
         const freshAccount = (await store.getAccountByUserId(account.user_id)) ?? account;
         res.status(safe.status).json({
           error: safe.message,
-          refunded: true,
+          refunded,
           account: await buildAccountSnapshot(store, freshAccount),
         });
       }
@@ -1046,6 +1116,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
     requireVerifiedAuth,
     requireActiveMember,
     requireAdmin,
+    limitAdminMutation,
     async (req: AuthedRequest, res: Response) => {
       const referenceCode = String(req.params.referenceCode || '').trim().toUpperCase();
       const assignedRole: MemberRole = req.body?.assignedRole === 'admin' ? 'admin' : 'member';
@@ -1079,6 +1150,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
     requireVerifiedAuth,
     requireActiveMember,
     requireAdmin,
+    limitAdminMutation,
     async (req: AuthedRequest, res: Response) => {
       const referenceCode = String(req.params.referenceCode || '').trim().toUpperCase();
       try {
@@ -1116,6 +1188,7 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
     requireVerifiedAuth,
     requireActiveMember,
     requireAdmin,
+    limitAdminMutation,
     async (req: AuthedRequest, res: Response) => {
       const targetUserId = String(req.params.userId || '').trim();
       if (!isValidUuid(targetUserId)) {
@@ -1147,7 +1220,11 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
           return;
         }
         res.json({ account: updated });
-      } catch {
+      } catch (err) {
+        if (err instanceof Error && err.message === 'LAST_ACTIVE_ADMIN') {
+          res.status(409).json({ error: 'At least one active administrator is required.' });
+          return;
+        }
         res.status(503).json({ error: 'Unable to update membership.' });
       }
     }
@@ -1158,7 +1235,12 @@ export function createApiApp(options: CreateApiAppOptions = {}): Express {
     requireVerifiedAuth,
     requireActiveMember,
     requireAdmin,
+    limitAdminMutation,
     async (req: AuthedRequest, res: Response) => {
+      if (!hasValidIdempotencyKey(req)) {
+        res.status(400).json({ error: 'A valid Idempotency-Key header is required.' });
+        return;
+      }
       const targetUserId = String(req.params.userId || '').trim();
       if (!isValidUuid(targetUserId)) {
         res.status(400).json({ error: 'Valid user UUID is required.' });

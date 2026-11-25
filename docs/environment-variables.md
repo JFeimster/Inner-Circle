@@ -18,6 +18,17 @@ Set these in **Vercel → Project (`inner-circle`) → Settings → Environment 
 
 > **Not Required:** `POSTGRES_URL` and `DATABASE_URL` are **not** required for normal Inner Circle runtime operation.
 
+### Phase 3 configuration gates
+
+- `SUPABASE_URL` and `VITE_SUPABASE_URL` must both be exactly `https://thdnmgmojhhhtjlhbwvn.supabase.co`. The server rejects any other project URL; the browser declines to initialize auth for one.
+- `SUPABASE_SECRET_KEY` is preferred. `SUPABASE_SERVICE_ROLE_KEY` is a legacy fallback when the preferred key is unset. Both remain server only.
+- `ALLOW_LOCAL_SQLITE=true` is required for local SQLite and is ignored in production and Vercel. Production does not need PostgreSQL connection strings.
+- `AI_STUDIO_LIVE_ENABLED=true` and `GEMINI_API_KEY` are both required for generation in every environment. Keep the flag `false` and key unset for review. Optional `GEMINI_CHAT_MODEL`, `GEMINI_IMAGE_MODEL`, and `GEMINI_FILE_MODEL` override the identifiers in `.env.example`.
+- `VITE_ALLOWED_HOSTS` lists exact trusted Vite development or AI Studio preview hostnames, separated by commas. Leave blank for Vite's normal localhost handling.
+- Keep `BILLING_WEBHOOK_SECRET` unset during review. No live payment processor is implemented.
+
+Install reproducibly with `npx --yes bun@1.4.5 install --frozen-lockfile`; `bun.lock` is the only dependency lockfile.
+
 ## Local Development Only Variables
 | Variable | Default | Notes |
 | :--- | :--- | :--- |
