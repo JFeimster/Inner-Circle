@@ -10,7 +10,7 @@ import {
   createLocalSignedTokenVerifier,
   issueLocalSignedToken,
 } from '../server/auth.ts';
-import { loadServerConfig } from '../server/config.ts';
+import { assertValidProductionConfig, loadServerConfig } from '../server/config.ts';
 import { SlidingWindowRateLimiter } from '../server/rateLimit.ts';
 
 const TEST_SIGNING_SECRET = 'test-local-signing-secret-inner-circle-phase2';
@@ -60,7 +60,8 @@ async function startTestServer(options: {
   const config = loadServerConfig({
     NODE_ENV: 'test',
     ALLOW_LOCAL_SQLITE: 'true',
-    AI_STUDIO_LIVE_ENABLED: 'false',
+    AI_STUDIO_LIVE_ENABLED: 'true',
+    GEMINI_API_KEY: 'test-mock-only',
     BILLING_WEBHOOK_SECRET: options.billingWebhookSecret ?? TEST_WEBHOOK_SECRET,
   });
 
@@ -344,6 +345,12 @@ test('4. Enforces account isolation, member RBAC, and suspension lockouts', asyn
       body: JSON.stringify({ message: 'Should be blocked' }),
     });
     assert.equal(suspendedStudio.status, 403);
+    const suspendedMe = await fetch(`${srv.baseUrl}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${aliceToken}` },
+    });
+    const suspendedBody = await suspendedMe.json();
+    assert.equal(suspendedBody.account, null);
+    assert.equal(suspendedBody.role, null);
   } finally {
     await srv.close();
   }
@@ -595,6 +602,89 @@ test('7. Browser source files never reference privileged server secrets', () => 
         `Forbidden secret identifier ${secretName} found in browser source ${file}`
       );
     }
+  }
+});
+
+test('8. Configuration rejects wrong projects and defaults AI and SQLite to disabled', () => {
+  const empty = loadServerConfig({ NODE_ENV: 'development', GEMINI_API_KEY: 'set' });
+  assert.equal(empty.aiGenerationEnabled, false);
+  assert.equal(empty.allowLocalSqlite, false);
+  const wrong = loadServerConfig({ NODE_ENV: 'production', SUPABASE_URL: 'https://loaowmappekunngjknnx.supabase.co', SUPABASE_SECRET_KEY: 'secret' });
+  assert.equal(assertValidProductionConfig(wrong), 'Server configuration incomplete.');
+  const right = loadServerConfig({ NODE_ENV: 'production', SUPABASE_URL: 'https://thdnmgmojhhhtjlhbwvn.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'legacy' });
+  assert.equal(assertValidProductionConfig(right), null);
+  assert.equal(right.supabaseKeySource, 'service_role_key');
+});
+
+test('9. Local credit accounting uses current plan, carries purchased balance, and protects last admin', async () => {
+  const store = await createLocalSqliteStore(':memory:');
+  try {
+    store.seedLocalAccountForTests({ user_id: ADMIN_UUID, email: 'admin@test.test', name: 'Admin', role: 'admin', membership_status: 'active', plan_id: 'inner_circle', bonus_credits: 0, invited_by_code: null });
+    await assert.rejects(store.updateMembership(ADMIN_UUID, { membershipStatus: 'suspended' }), /LAST_ACTIVE_ADMIN/);
+    store.seedLocalAccountForTests({ user_id: USER_A_UUID, email: 'a@test.test', name: 'A', role: 'member', membership_status: 'active', plan_id: 'onboarding', bonus_credits: 100, invited_by_code: null });
+    const first = await store.reserveCredits({ userId: USER_A_UUID, actionType: 'image', cost: 5,
+      idempotencyKey: 'plan-current-001', promptSummary: 'test', monthKey: '2026-11', dayKey: '2026-11-25',
+      monthlyBase: 1000, dailyLimit: 150 });
+    assert.equal(first.dailyLimit, 10);
+    assert.equal(first.monthlyAllowance, 130);
+    assert.equal(await store.finalizeReservation(first.ledgerId!, USER_A_UUID), true);
+    assert.equal(await store.finalizeReservation(first.ledgerId!, USER_A_UUID), false);
+    const second = await store.reserveCredits({ userId: USER_A_UUID, actionType: 'image', cost: 5,
+      idempotencyKey: 'plan-current-002', promptSummary: 'test', monthKey: '2026-11', dayKey: '2026-11-25',
+      monthlyBase: 1000, dailyLimit: 150 });
+    assert.equal(second.ok, true);
+    assert.equal(await store.refundReservation(second.ledgerId!, USER_A_UUID, 'test'), true);
+    assert.equal(await store.refundReservation(second.ledgerId!, USER_A_UUID, 'test'), false);
+    assert.equal(await store.finalizeReservation(second.ledgerId!, USER_A_UUID), false);
+    for (let i = 0; i < 5; i++) {
+      const result = await store.reserveCredits({ userId: USER_A_UUID, actionType: 'image', cost: 5,
+        idempotencyKey: `finish-plan-${i}`, promptSummary: 'test', monthKey: '2026-11',
+        dayKey: `2026-11-${String(26 + Math.floor(i / 2)).padStart(2, '0')}`,
+        monthlyBase: 1000, dailyLimit: 150 });
+      assert.equal(result.ok, true);
+      assert.equal(await store.finalizeReservation(result.ledgerId!, USER_A_UUID), true);
+    }
+    const fromPack = await store.reserveCredits({ userId: USER_A_UUID, actionType: 'image', cost: 5,
+      idempotencyKey: 'pack-consumption-001', promptSummary: 'test', monthKey: '2026-11',
+      dayKey: '2026-11-29', monthlyBase: 1000, dailyLimit: 150 });
+    assert.equal(fromPack.ok, true);
+    assert.equal((await store.getAccountByUserId(USER_A_UUID))!.bonus_credits, 95);
+    assert.equal(await store.refundReservation(fromPack.ledgerId!, USER_A_UUID, 'failed'), true);
+    assert.equal((await store.getAccountByUserId(USER_A_UUID))!.bonus_credits, 100);
+    const nextMonth = await store.reserveCredits({ userId: USER_A_UUID, actionType: 'chat', cost: 1,
+      idempotencyKey: 'rollover-2026-12', promptSummary: 'test', monthKey: '2026-12',
+      dayKey: '2026-12-01', monthlyBase: 0, dailyLimit: 0 });
+    assert.equal(nextMonth.ok, true);
+    assert.equal((await store.getAccountByUserId(USER_A_UUID))!.bonus_credits, 100);
+  } finally { store.close(); }
+});
+
+test('10. Disabled AI never reserves credits and unverified email cannot redeem', async () => {
+  const store = await createLocalSqliteStore(':memory:');
+  store.seedLocalAccountForTests({ user_id: USER_A_UUID, email: 'a@test.test', name: 'A', role: 'member',
+    membership_status: 'active', plan_id: 'onboarding', bonus_credits: 0, invited_by_code: null });
+  const app = createApiApp({
+    config: loadServerConfig({ NODE_ENV: 'test', ALLOW_LOCAL_SQLITE: 'true', AI_STUDIO_LIVE_ENABLED: 'false' }),
+    store,
+    authVerifier: { async verifyBearerToken() { return { userId: USER_A_UUID, email: 'a@test.test', emailVerified: false }; } },
+    aiGenerator: { async chat() { throw new Error('should not run'); }, async image() { throw new Error('should not run'); }, async file() { throw new Error('should not run'); } },
+  });
+  const server = http.createServer(app);
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const port = (server.address() as { port: number }).port;
+  try {
+    const ai = await fetch(`http://127.0.0.1:${port}/api/studio/chat`, { method: 'POST',
+      headers: { Authorization: 'Bearer test', 'Content-Type': 'application/json', 'Idempotency-Key': 'disabled-001' },
+      body: JSON.stringify({ message: 'test' }) });
+    assert.equal(ai.status, 503);
+    assert.deepEqual(await store.getRecentUsage(USER_A_UUID), []);
+    const redeem = await fetch(`http://127.0.0.1:${port}/api/onboarding/redeem`, { method: 'POST',
+      headers: { Authorization: 'Bearer test', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ inviteCode: 'TEST-CODE' }) });
+    assert.equal(redeem.status, 403);
+  } finally {
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    store.close();
   }
 });
 

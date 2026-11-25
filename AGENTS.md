@@ -27,3 +27,5 @@ This repository hosts **Inner Circle** (Moonshine Capital Agent Onboarding & AI 
    - Keep `/api/health` strictly non-mutating and sanitize all server error responses.
 5. **Verification Before Merge**
    - Run `npm run lint`, `npm test`, and `npm run build` before committing changes.
+   - Install with `npx --yes bun@1.4.5 install --frozen-lockfile` using the sole `bun.lock`.
+   - Phase 3 migration `20261125000300_phase3_hardening.sql` is scoped only to `thdnmgmojhhhtjlhbwvn`; review and apply manually after the first two migrations. Never run integration tests against a remote database.

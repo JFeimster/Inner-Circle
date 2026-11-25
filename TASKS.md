@@ -21,8 +21,14 @@
 - [ ] Configure Vercel Environment Variables (`VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY`).
 - [ ] Bootstrap the initial `admin` user in `public.agent_accounts` after verifying the founding admin's email in Supabase Auth.
 - [ ] Trigger Vercel deployment from `https://github.com/JFeimster/Inner-Circle` and verify `GET /api/health`.
-- [ ] *(When ready)* Activate live Gemini (`GEMINI_API_KEY` + `AI_STUDIO_LIVE_ENABLED=true`) and live Stripe billing (`BILLING_WEBHOOK_SECRET`).
+- [ ] *(When ready)* Activate live Gemini (`GEMINI_API_KEY` + `AI_STUDIO_LIVE_ENABLED=true`) and live billing (`BILLING_WEBHOOK_SECRET`).
 
+# Phase 3 targeted hardening
+
+- [x] Local implementation: configuration gates, database migration, distributed rate limits, credit lifecycle, admin workspace, tests, and documentation.
+- [ ] Review `20261125000300_phase3_hardening.sql` on a local Supabase instance and run `tests/postgres.integration.ts` against loopback PostgreSQL.
+- [ ] Review production environment variables and apply the three migrations to the dedicated Inner Circle project only, after explicit authorization.
+- [ ] Activate AI and billing only after separate production approval and integration verification.
 ## Ongoing Feature Tasks (Next Phase — See `docs/09-feature-backlog-and-component-specs.md`)
 - [ ] **Profile Monthly AI Credit Usage (`src/components/Profile.tsx`):** Extend `src/components/Profile.tsx` with a visual progress bar or simple donut chart (using `recharts`) representing monthly AI credit consumption versus plan limits, fetching live data from `/api/studio/account`.
 - [ ] **Admin Dashboard (`src/components/AdminDashboard.tsx`):** Create `src/components/AdminDashboard.tsx` consuming `/api/admin/accounts` and `/api/admin/invitations` in a tabbed view (`Agent Accounts` | `Invitations`) for authenticated administrators to manage agent statuses and review/approve/revoke invitations.
@@ -30,6 +36,3 @@
 - [ ] **Notification Center (`src/components/NotificationCenter.tsx`):** Add real-time toast overlays and slide-out drawer for leads, mentor feedback, and community activity.
 - [ ] **Start Module Video Modal (`src/components/ModulePlayerModal.tsx`):** Open embedded video player and syllabus checklist modal when clicking "Start Module".
 
-## Known Issues & Technical Debt to Address Before High-Scale Launch
-- [ ] **Distributed Rate Limiting:** Replace in-memory `SlidingWindowRateLimiter` (`server/rateLimit.ts`) with a persistent/distributed store (e.g., Upstash Redis or Supabase-backed window table) across Vercel serverless instances.
-- [ ] **Staging PostgreSQL Concurrency Verification:** Re-run concurrent credit reservation tests against live PostgreSQL `FOR UPDATE` RPCs once `/supabase/migrations/` are applied (current suite validates against in-memory SQLite).

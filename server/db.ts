@@ -2,7 +2,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import type { ServerConfig } from './config.ts';
+import { isInnerCircleSupabaseUrl, type ServerConfig } from './config.ts';
 
 export type MemberRole = 'member' | 'admin';
 export type MembershipStatus = 'active' | 'suspended' | 'revoked';
@@ -111,6 +111,7 @@ export interface BillingEventResult {
 export interface InnerCircleStore {
   readonly driver: 'supabase' | 'local-sqlite';
   ping(): Promise<void>;
+  consumeRateLimit(key: string, limit: number, windowSeconds: number): Promise<{ allowed: boolean; remaining: number; retryAfterSeconds: number }>;
   getAccountByUserId(userId: string): Promise<AgentAccountRow | null>;
   listAccounts(limit?: number): Promise<AgentAccountRow[]>;
   updateMembership(
@@ -121,7 +122,7 @@ export interface InnerCircleStore {
     userId: string,
     monthKey: string,
     dayKey: string
-  ): Promise<{ monthlyUsed: number; dailyUsed: number }>;
+  ): Promise<{ monthlyUsed: number; dailyUsed: number; monthlyPurchasedUsed: number }>;
   getRecentUsage(userId: string, limit?: number): Promise<UsageLedgerRow[]>;
   reserveCredits(input: ReserveCreditsInput): Promise<ReserveCreditsResult>;
   finalizeReservation(ledgerId: number, userId: string): Promise<boolean>;
@@ -152,6 +153,7 @@ export interface InnerCircleStore {
 
 // --- 1. Supabase Store (Production & Staging — zero DDL, zero auto-seeding, zero POSTGRES_URL) ---
 export function createSupabaseStore(url: string, serverKey: string): InnerCircleStore {
+  if (!isInnerCircleSupabaseUrl(url)) throw new Error('SERVER_CONFIG_INCOMPLETE');
   const supabase: SupabaseClient = createClient(url, serverKey, {
     auth: {
       autoRefreshToken: false,
@@ -171,6 +173,18 @@ export function createSupabaseStore(url: string, serverKey: string): InnerCircle
       if (error) {
         throw new Error('SUPABASE_HEALTH_FAILED');
       }
+    },
+
+    async consumeRateLimit(key, limit, windowSeconds) {
+      const { data, error } = await supabase.rpc('consume_rate_limit', {
+        p_key: key, p_limit: limit, p_window_seconds: windowSeconds,
+      });
+      if (error || !Array.isArray(data) || !data[0]) throw new Error('RATE_LIMIT_RPC_ERROR');
+      return {
+        allowed: Boolean(data[0].allowed),
+        remaining: Number(data[0].remaining),
+        retryAfterSeconds: Number(data[0].retry_after_seconds),
+      };
     },
 
     async getAccountByUserId(userId: string) {
@@ -200,55 +214,24 @@ export function createSupabaseStore(url: string, serverKey: string): InnerCircle
     },
 
     async updateMembership(userId, updates) {
-      const patch: Record<string, string> = {};
-      if (updates.role) patch.role = updates.role;
-      if (updates.membershipStatus) patch.membership_status = updates.membershipStatus;
-      if (Object.keys(patch).length === 0) {
+      if (!updates.role && !updates.membershipStatus) {
         return this.getAccountByUserId(userId);
       }
-
-      const { data, error } = await supabase
-        .from('agent_accounts')
-        .update(patch)
-        .eq('user_id', userId)
-        .select(
-          'user_id, email, name, role, membership_status, plan_id, bonus_credits, invited_by_code, created_at'
-        )
-        .maybeSingle();
-
+      const { data, error } = await supabase.rpc('update_member_status', {
+        p_user_id: userId, p_role: updates.role ?? null, p_status: updates.membershipStatus ?? null,
+      });
+      if (error?.message?.includes('LAST_ACTIVE_ADMIN')) throw new Error('LAST_ACTIVE_ADMIN');
       if (error) throw new Error('STORE_WRITE_ERROR');
-      return (data as AgentAccountRow | null) ?? null;
+      return data ? this.getAccountByUserId(userId) : null;
     },
 
     async getUsageTotals(userId, monthKey, dayKey) {
-      const [monthRes, dayRes] = await Promise.all([
-        supabase
-          .from('usage_ledger')
-          .select('credits_used')
-          .eq('user_id', userId)
-          .eq('month_key', monthKey)
-          .in('status', ['reserved', 'committed']),
-        supabase
-          .from('usage_ledger')
-          .select('credits_used')
-          .eq('user_id', userId)
-          .eq('day_key', dayKey)
-          .in('status', ['reserved', 'committed']),
-      ]);
-
-      if (monthRes.error || dayRes.error) {
-        throw new Error('STORE_READ_ERROR');
-      }
-
-      const monthlyUsed = (monthRes.data ?? []).reduce(
-        (sum, r) => sum + Number(r.credits_used ?? 0),
-        0
-      );
-      const dailyUsed = (dayRes.data ?? []).reduce(
-        (sum, r) => sum + Number(r.credits_used ?? 0),
-        0
-      );
-      return { monthlyUsed, dailyUsed };
+      const { data, error } = await supabase.rpc('get_studio_usage_totals', {
+        p_user_id: userId, p_month_key: monthKey, p_day_key: dayKey,
+      });
+      if (error || !Array.isArray(data) || !data[0]) throw new Error('STORE_READ_ERROR');
+      return { monthlyUsed: Number(data[0].monthly_used), dailyUsed: Number(data[0].daily_used),
+        monthlyPurchasedUsed: Number(data[0].monthly_purchased_used) };
     },
 
     async getRecentUsage(userId, limit = 15) {
@@ -468,6 +451,10 @@ export async function createLocalSqliteStore(
   db.pragma('foreign_keys = ON');
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS rate_limit_buckets (
+      bucket_key TEXT NOT NULL, window_start INTEGER NOT NULL, request_count INTEGER NOT NULL,
+      PRIMARY KEY (bucket_key, window_start)
+    );
     CREATE TABLE IF NOT EXISTS agent_accounts (
       user_id TEXT PRIMARY KEY,
       email TEXT NOT NULL UNIQUE,
@@ -503,6 +490,8 @@ export async function createLocalSqliteStore(
       action_type TEXT NOT NULL CHECK (action_type IN ('chat', 'file', 'image')),
       credits_used INTEGER NOT NULL CHECK (credits_used > 0),
       status TEXT NOT NULL DEFAULT 'reserved' CHECK (status IN ('reserved', 'committed', 'refunded')),
+      purchased_credits_used INTEGER NOT NULL DEFAULT 0,
+      expires_at TEXT,
       idempotency_key TEXT NOT NULL,
       prompt_summary TEXT NOT NULL,
       month_key TEXT NOT NULL,
@@ -526,9 +515,17 @@ export async function createLocalSqliteStore(
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+  const ledgerColumns = new Set((db.pragma('table_info(usage_ledger)') as Array<{ name: string }>).map(row => row.name));
+  if (!ledgerColumns.has('purchased_credits_used')) {
+    db.exec('ALTER TABLE usage_ledger ADD COLUMN purchased_credits_used INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!ledgerColumns.has('expires_at')) {
+    db.exec('ALTER TABLE usage_ledger ADD COLUMN expires_at TEXT');
+    db.exec(`UPDATE usage_ledger SET expires_at = datetime(created_at, '+15 minutes') WHERE status = 'reserved'`);
+  }
 
   const reserveTx = db.transaction((input: ReserveCreditsInput): ReserveCreditsResult => {
-    if (input.cost <= 0) {
+    if (input.cost !== ({ chat: 1, file: 2, image: 5 } as const)[input.actionType]) {
       return {
         ok: false,
         errorCode: 'INVALID_COST',
@@ -543,6 +540,12 @@ export async function createLocalSqliteStore(
     const account = db
       .prepare('SELECT * FROM agent_accounts WHERE user_id = ?')
       .get(input.userId) as AgentAccountRow | undefined;
+
+    const planLimits = {
+      onboarding: { monthly: 30, daily: 10 },
+      producer: { monthly: 250, daily: 50 },
+      inner_circle: { monthly: 1000, daily: 150 },
+    };
 
     if (!account) {
       return {
@@ -568,6 +571,17 @@ export async function createLocalSqliteStore(
       };
     }
 
+    const expired = db.prepare(`SELECT COALESCE(SUM(purchased_credits_used), 0) AS total
+      FROM usage_ledger WHERE user_id = ? AND status = 'reserved' AND expires_at <= datetime('now')`)
+      .get(input.userId) as { total: number };
+    db.prepare(`UPDATE usage_ledger SET status = 'refunded', refund_reason = 'reservation_expired'
+      WHERE user_id = ? AND status = 'reserved' AND expires_at <= datetime('now')`).run(input.userId);
+    if (expired.total > 0) {
+      db.prepare('UPDATE agent_accounts SET bonus_credits = bonus_credits + ? WHERE user_id = ?')
+        .run(expired.total, input.userId);
+      account.bonus_credits += expired.total;
+    }
+
     const existing = db
       .prepare('SELECT id FROM usage_ledger WHERE user_id = ? AND idempotency_key = ?')
       .get(input.userId, input.idempotencyKey) as { id: number } | undefined;
@@ -590,7 +604,12 @@ export async function createLocalSqliteStore(
 
     const monthlyUsed = Number(monthRow?.total ?? 0);
     const dailyUsed = Number(dayRow?.total ?? 0);
-    const monthlyAllowance = input.monthlyBase + Number(account.bonus_credits);
+    const limits = planLimits[account.plan_id];
+    const monthlyAllowance = limits.monthly + Number(account.bonus_credits);
+    const planUsedRow = db.prepare(`SELECT COALESCE(SUM(credits_used - purchased_credits_used), 0) AS total
+      FROM usage_ledger WHERE user_id = ? AND month_key = ? AND status IN ('reserved', 'committed')`)
+      .get(input.userId, input.monthKey) as { total: number };
+    const purchasedCost = Math.max(0, input.cost - Math.max(0, limits.monthly - planUsedRow.total));
 
     if (existing) {
       return {
@@ -604,7 +623,7 @@ export async function createLocalSqliteStore(
       };
     }
 
-    if (monthlyUsed + input.cost > monthlyAllowance) {
+    if (purchasedCost > account.bonus_credits) {
       return {
         ok: false,
         errorCode: 'MONTHLY_LIMIT_EXCEEDED',
@@ -616,7 +635,7 @@ export async function createLocalSqliteStore(
       };
     }
 
-    if (dailyUsed + input.cost > input.dailyLimit) {
+    if (dailyUsed + input.cost > limits.daily) {
       return {
         ok: false,
         errorCode: 'DAILY_LIMIT_EXCEEDED',
@@ -624,24 +643,27 @@ export async function createLocalSqliteStore(
         monthlyUsed,
         monthlyAllowance,
         dailyUsed,
-        dailyLimit: input.dailyLimit,
+        dailyLimit: limits.daily,
       };
     }
 
     const insertRes = db
       .prepare(
-        `INSERT INTO usage_ledger (user_id, action_type, credits_used, status, idempotency_key, prompt_summary, month_key, day_key)
-         VALUES (?, ?, ?, 'reserved', ?, ?, ?, ?)`
+        `INSERT INTO usage_ledger (user_id, action_type, credits_used, purchased_credits_used, expires_at, status, idempotency_key, prompt_summary, month_key, day_key)
+         VALUES (?, ?, ?, ?, datetime('now', '+15 minutes'), 'reserved', ?, ?, ?, ?)`
       )
       .run(
         input.userId,
         input.actionType,
         input.cost,
+        purchasedCost,
         input.idempotencyKey,
         input.promptSummary.slice(0, 140),
         input.monthKey,
         input.dayKey
       );
+    db.prepare('UPDATE agent_accounts SET bonus_credits = bonus_credits - ? WHERE user_id = ?')
+      .run(purchasedCost, input.userId);
 
     return {
       ok: true,
@@ -650,7 +672,7 @@ export async function createLocalSqliteStore(
       monthlyUsed: monthlyUsed + input.cost,
       monthlyAllowance,
       dailyUsed: dailyUsed + input.cost,
-      dailyLimit: input.dailyLimit,
+      dailyLimit: limits.daily,
     };
   });
 
@@ -763,6 +785,22 @@ export async function createLocalSqliteStore(
   return {
     driver: 'local-sqlite',
 
+    async consumeRateLimit(key, limit, windowSeconds) {
+      const now = Math.floor(Date.now() / 1000);
+      const start = Math.floor(now / windowSeconds) * windowSeconds;
+      const tx = db.transaction(() => {
+        db.prepare(`INSERT INTO rate_limit_buckets (bucket_key, window_start, request_count)
+          VALUES (?, ?, 1) ON CONFLICT(bucket_key, window_start) DO UPDATE SET request_count = request_count + 1`)
+          .run(key, start);
+        db.prepare('DELETE FROM rate_limit_buckets WHERE window_start < ?').run(now - 7200);
+        return (db.prepare('SELECT request_count FROM rate_limit_buckets WHERE bucket_key = ? AND window_start = ?')
+          .get(key, start) as { request_count: number }).request_count;
+      });
+      const count = tx.immediate();
+      return { allowed: count <= limit, remaining: Math.max(0, limit - count),
+        retryAfterSeconds: count <= limit ? 0 : start + windowSeconds - now };
+    },
+
     async ping() {
       db.prepare('SELECT 1 AS ok').get();
     },
@@ -781,18 +819,19 @@ export async function createLocalSqliteStore(
     },
 
     async updateMembership(userId, updates) {
-      if (updates.role) {
-        db.prepare('UPDATE agent_accounts SET role = ? WHERE user_id = ?').run(
-          updates.role,
-          userId
-        );
-      }
-      if (updates.membershipStatus) {
-        db.prepare('UPDATE agent_accounts SET membership_status = ? WHERE user_id = ?').run(
-          updates.membershipStatus,
-          userId
-        );
-      }
+      db.transaction(() => {
+        const current = db.prepare('SELECT role, membership_status FROM agent_accounts WHERE user_id = ?')
+          .get(userId) as { role: MemberRole; membership_status: MembershipStatus } | undefined;
+        if (!current) return;
+        if (current.role === 'admin' && current.membership_status === 'active' &&
+          (updates.role === 'member' || (updates.membershipStatus && updates.membershipStatus !== 'active'))) {
+          const count = (db.prepare(`SELECT COUNT(*) AS count FROM agent_accounts WHERE role = 'admin' AND membership_status = 'active'`)
+            .get() as { count: number }).count;
+          if (count <= 1) throw new Error('LAST_ACTIVE_ADMIN');
+        }
+        db.prepare('UPDATE agent_accounts SET role = COALESCE(?, role), membership_status = COALESCE(?, membership_status) WHERE user_id = ?')
+          .run(updates.role ?? null, updates.membershipStatus ?? null, userId);
+      }).immediate();
       return this.getAccountByUserId(userId);
     },
 
@@ -811,9 +850,13 @@ export async function createLocalSqliteStore(
            WHERE user_id = ? AND day_key = ? AND status IN ('reserved', 'committed')`
         )
         .get(userId, dayKey) as { total: number };
+      const packRow = db.prepare(`SELECT COALESCE(SUM(purchased_credits_used), 0) AS total FROM usage_ledger
+        WHERE user_id = ? AND month_key = ? AND status IN ('reserved', 'committed')`)
+        .get(userId, monthKey) as { total: number };
       return {
         monthlyUsed: Number(monthRow?.total ?? 0),
         dailyUsed: Number(dayRow?.total ?? 0),
+        monthlyPurchasedUsed: Number(packRow?.total ?? 0),
       };
     },
 
@@ -836,19 +879,23 @@ export async function createLocalSqliteStore(
     async finalizeReservation(ledgerId, userId) {
       const res = db
         .prepare(
-          `UPDATE usage_ledger SET status = 'committed' WHERE id = ? AND user_id = ? AND status = 'reserved'`
+          `UPDATE usage_ledger SET status = 'committed' WHERE id = ? AND user_id = ? AND status = 'reserved' AND expires_at > datetime('now')`
         )
         .run(ledgerId, userId);
       return res.changes > 0;
     },
 
     async refundReservation(ledgerId, userId, reason) {
-      const res = db
-        .prepare(
-          `UPDATE usage_ledger SET status = 'refunded', refund_reason = ? WHERE id = ? AND user_id = ? AND status = 'reserved'`
-        )
-        .run(reason.slice(0, 160), ledgerId, userId);
-      return res.changes > 0;
+      return db.transaction(() => {
+        const row = db.prepare(`SELECT purchased_credits_used FROM usage_ledger WHERE id = ? AND user_id = ? AND status = 'reserved'`)
+          .get(ledgerId, userId) as { purchased_credits_used: number } | undefined;
+        if (!row) return false;
+        db.prepare(`UPDATE usage_ledger SET status = 'refunded', refund_reason = ? WHERE id = ?`)
+          .run(reason.slice(0, 160), ledgerId);
+        db.prepare('UPDATE agent_accounts SET bonus_credits = bonus_credits + ? WHERE user_id = ?')
+          .run(row.purchased_credits_used, userId);
+        return true;
+      }).immediate();
     },
 
     async createInvitation(input) {

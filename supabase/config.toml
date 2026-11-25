@@ -1,0 +1,9 @@
+# Disposable local database used by the database-verification GitHub workflow.
+project_id = "inner-circle-ci"
+
+[db]
+port = 54322
+major_version = 17
+
+[db.seed]
+enabled = false

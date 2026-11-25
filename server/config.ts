@@ -10,6 +10,22 @@ export interface ServerConfig {
   aiGenerationEnabled: boolean;
   billingWebhookSecret: string | null;
   appUrl: string | null;
+  geminiChatModel: string;
+  geminiImageModel: string;
+  geminiFileModel: string;
+}
+
+export const INNER_CIRCLE_SUPABASE_URL = 'https://thdnmgmojhhhtjlhbwvn.supabase.co';
+
+export function isInnerCircleSupabaseUrl(value: string | null): boolean {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return url.origin === INNER_CIRCLE_SUPABASE_URL &&
+      (url.pathname === '/' || url.pathname === '') && !url.search && !url.hash;
+  } catch {
+    return false;
+  }
 }
 
 export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -28,22 +44,12 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     : null;
 
   // SQLite is strictly prohibited in production or on Vercel.
-  // In local dev/test, allow explicit SQLite via ALLOW_LOCAL_SQLITE=true or when Supabase server config is unset.
+  // Local SQLite requires explicit opt-in, including in automated tests.
   const explicitLocalOptIn = env.ALLOW_LOCAL_SQLITE === 'true';
-  const explicitLocalOptOut = env.ALLOW_LOCAL_SQLITE === 'false';
-  const allowLocalSqlite =
-    !isProduction &&
-    !isVercel &&
-    !explicitLocalOptOut &&
-    (explicitLocalOptIn || !supabaseUrl || !supabaseServerKey);
+  const allowLocalSqlite = !isProduction && !isVercel && explicitLocalOptIn;
 
   const geminiApiKey = (env.GEMINI_API_KEY || '').trim() || null;
-  // Require explicit opt-in flag in production before enabling paid Gemini calls;
-  // in local/staging dev, disabled when AI_STUDIO_LIVE_ENABLED === 'false' or key is unset.
-  const aiGenerationEnabled =
-    Boolean(geminiApiKey) &&
-    env.AI_STUDIO_LIVE_ENABLED !== 'false' &&
-    (!isProduction || env.AI_STUDIO_LIVE_ENABLED === 'true');
+  const aiGenerationEnabled = Boolean(geminiApiKey) && env.AI_STUDIO_LIVE_ENABLED === 'true';
 
   const billingWebhookSecret = (env.BILLING_WEBHOOK_SECRET || '').trim() || null;
   const appUrl = (env.APP_URL || '').trim() || null;
@@ -60,10 +66,16 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     aiGenerationEnabled,
     billingWebhookSecret,
     appUrl,
+    geminiChatModel: env.GEMINI_CHAT_MODEL?.trim() || 'gemini-4-hydrogen',
+    geminiImageModel: env.GEMINI_IMAGE_MODEL?.trim() || 'gemini-3.1-flash-lite-image',
+    geminiFileModel: env.GEMINI_FILE_MODEL?.trim() || 'gemini-4-hydrogen',
   };
 }
 
 export function assertValidProductionConfig(config: ServerConfig): string | null {
+  if (config.supabaseUrl && !isInnerCircleSupabaseUrl(config.supabaseUrl)) {
+    return 'Server configuration incomplete.';
+  }
   if (config.isProduction && (!config.supabaseUrl || !config.supabaseServerKey)) {
     return 'Server configuration incomplete.';
   }

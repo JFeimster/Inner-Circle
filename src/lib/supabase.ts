@@ -3,9 +3,11 @@ import { createClient, Session, SupabaseClient } from '@supabase/supabase-js';
 const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim() || '';
 const SUPABASE_PUBLISHABLE_KEY =
   (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined)?.trim() || '';
+const EXPECTED_SUPABASE_URL = 'https://thdnmgmojhhhtjlhbwvn.supabase.co';
 
 let browserClient: SupabaseClient | null = null;
 let browserInitFailed = false;
+let callbackPromise: Promise<Session | null> | null = null;
 
 function createSafeBrowserStorage() {
   const memoryStore = new Map<string, string>();
@@ -42,7 +44,7 @@ function createSafeBrowserStorage() {
           useLocalStorage = false;
         }
       }
-      memoryStore.set(key, value);
+      throw new Error('Persistent authentication storage is unavailable. Enable browser storage and try again.');
     },
     removeItem(key: string): void {
       if (useLocalStorage) {
@@ -59,7 +61,7 @@ function createSafeBrowserStorage() {
 }
 
 export function isSupabaseBrowserConfigured(): boolean {
-  return Boolean(SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY) && !browserInitFailed;
+  return SUPABASE_URL === EXPECTED_SUPABASE_URL && Boolean(SUPABASE_PUBLISHABLE_KEY) && !browserInitFailed;
 }
 
 export function getSupabaseBrowserClient(): SupabaseClient | null {
@@ -73,7 +75,7 @@ export function getSupabaseBrowserClient(): SupabaseClient | null {
           flowType: 'pkce',
           autoRefreshToken: true,
           persistSession: true,
-          detectSessionInUrl: true,
+          detectSessionInUrl: false,
           storage: createSafeBrowserStorage(),
         },
       });
@@ -126,7 +128,13 @@ export async function verifyEmailSignInOtp(email: string, token: string): Promis
   return data.session;
 }
 
-export async function completeAuthCallbackFromUrl(): Promise<Session | null> {
+export function completeAuthCallbackFromUrl(): Promise<Session | null> {
+  if (callbackPromise) return callbackPromise;
+  callbackPromise = exchangeAuthCallbackFromUrl();
+  return callbackPromise;
+}
+
+async function exchangeAuthCallbackFromUrl(): Promise<Session | null> {
   const client = getSupabaseBrowserClient();
   if (!client) return null;
 
@@ -136,8 +144,8 @@ export async function completeAuthCallbackFromUrl(): Promise<Session | null> {
   const type = url.searchParams.get('type');
 
   if (code) {
-    const { data, error } = await client.auth.exchangeCodeForSession(code);
     window.history.replaceState({}, document.title, '/');
+    const { data, error } = await client.auth.exchangeCodeForSession(code);
     if (error) {
       throw new Error('Authentication link expired or invalid. Please request a new sign-in email.');
     }
@@ -145,11 +153,11 @@ export async function completeAuthCallbackFromUrl(): Promise<Session | null> {
   }
 
   if (tokenHash && (type === 'magiclink' || type === 'email' || type === 'signup')) {
+    window.history.replaceState({}, document.title, '/');
     const { data, error } = await client.auth.verifyOtp({
       token_hash: tokenHash,
       type,
     });
-    window.history.replaceState({}, document.title, '/');
     if (error) {
       throw new Error('Verification link expired or invalid. Please request a new sign-in email.');
     }

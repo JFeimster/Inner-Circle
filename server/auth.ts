@@ -1,12 +1,13 @@
 import crypto from 'crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Request } from 'express';
-import type { ServerConfig } from './config.ts';
+import { isInnerCircleSupabaseUrl, type ServerConfig } from './config.ts';
 
 export interface VerifiedIdentity {
   userId: string;
   email: string;
   name?: string;
+  emailVerified?: boolean;
 }
 
 export interface AuthVerifier {
@@ -34,7 +35,7 @@ export function createSupabaseAuthVerifier(config: ServerConfig): AuthVerifier {
 
   return {
     async verifyBearerToken(token: string): Promise<VerifiedIdentity | null> {
-      if (!config.supabaseUrl || !config.supabaseServerKey || !token) {
+      if (!isInnerCircleSupabaseUrl(config.supabaseUrl) || !config.supabaseServerKey || !token) {
         return null;
       }
 
@@ -64,6 +65,7 @@ export function createSupabaseAuthVerifier(config: ServerConfig): AuthVerifier {
         userId: data.user.id,
         email: data.user.email.trim().toLowerCase(),
         name: metaName?.trim() || undefined,
+        emailVerified: Boolean(data.user.email_confirmed_at),
       };
     },
   };
@@ -129,6 +131,7 @@ export function createLocalSignedTokenVerifier(
           userId: parsed.sub,
           email: parsed.email.trim().toLowerCase(),
           name: typeof parsed.name === 'string' ? parsed.name : undefined,
+          emailVerified: true,
         };
       } catch {
         return null;

@@ -32,4 +32,8 @@ All critical state transitions execute inside PostgreSQL `SECURITY DEFINER` tran
 
 ## Runtime Modes
 - **Production / Vercel (`NODE_ENV=production` or `VERCEL=1`):** Requires `SUPABASE_URL` and `SUPABASE_SECRET_KEY` (or `SUPABASE_SERVICE_ROLE_KEY`). Fails closed with HTTP `503` if incomplete. Never runs automatic DDL or seeding. Does not require `POSTGRES_URL` or `DATABASE_URL`.
-- **Local Development / Test:** Uses `SupabaseStore` if Supabase server credentials are provided, or falls back to `LocalSqliteStore` only when explicitly permitted in non-production environments.
+- **Local Development / Test:** Uses `SupabaseStore` if dedicated Inner Circle credentials are provided, or uses `LocalSqliteStore` only with `ALLOW_LOCAL_SQLITE=true` outside production and Vercel.
+
+# Phase 3 production boundary
+
+The dedicated `inner-circle` Supabase project (`thdnmgmojhhhtjlhbwvn`) owns authentication, RLS, server-side RPC credit accounting, and rate-limit buckets. API requests verify the Supabase user UUID and active membership before protected reads or writes. Browser reads of `agent_accounts` and `usage_ledger` are permitted only for the active account itself. The admin workspace is a thin client over the existing role-protected API. Purchased pack balance persists across monthly plan resets and is deducted only after monthly plan credits are exhausted. The reviewed Phase 3 migration adds conditional reservation finalization, expiry reconciliation, replay-safe billing writes, and a database guard for the last active administrator.
