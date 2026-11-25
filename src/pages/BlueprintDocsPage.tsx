@@ -18,6 +18,7 @@ import doc03 from '../../docs/03-self-serve-oauth-guide-and-providers.md?raw';
 import doc04 from '../../docs/04-automated-onboarding-workflows.md?raw';
 import doc05 from '../../docs/05-site-pages-and-files-blueprint.md?raw';
 import doc06 from '../../docs/06-asset-search-and-discovery.md?raw';
+import doc07 from '../../docs/07-ai-studio-packaging-and-pricing.md?raw';
 import integrationsYaml from '../../config/integrations.yaml?raw';
 
 interface DocEntry {
@@ -95,8 +96,17 @@ const BLUEPRINT_DOCS: DocEntry[] = [
     content: doc06,
   },
   {
-    id: 'config-yaml',
+    id: 'doc-07',
     order: '07',
+    title: 'AI Studio Packaging, Pricing & Economics',
+    path: '/docs/07-ai-studio-packaging-and-pricing.md',
+    format: 'md',
+    summary: 'Credit matrix, 3-tier pricing, top-up packs, margin analysis & Stripe webhook checklist.',
+    content: doc07,
+  },
+  {
+    id: 'config-yaml',
+    order: '08',
     title: 'Integrations Config (YAML)',
     path: '/config/integrations.yaml',
     format: 'yaml',

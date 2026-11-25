@@ -12,6 +12,7 @@ All strategy, pricing, OAuth, workflow, and site-expansion guides are organized 
 4. [04 — Automated Onboarding Workflows & Selected Stack](./docs/04-automated-onboarding-workflows.md)
 5. [05 — Complete Blueprint of Additional Pages & Supporting Files](./docs/05-site-pages-and-files-blueprint.md)
 6. [06 — Searching & Surfacing Available Site Assets](./docs/06-asset-search-and-discovery.md)
+7. [07 — AI Studio Packaging, Pricing & Unit Economics](./docs/07-ai-studio-packaging-and-pricing.md)
 
 See also [`config/integrations.yaml`](./config/integrations.yaml) for the declarative catalog of planned integrations across Phases 1–3.
 

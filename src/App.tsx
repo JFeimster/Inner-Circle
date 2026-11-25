@@ -25,6 +25,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { AgentProfile, Milestone, Resource, ResourceCategory, RoadmapWeek, SuccessStory, Challenge } from './types';
 import BlueprintDocsPage from './pages/BlueprintDocsPage';
+import AIStudioPage from './pages/AIStudioPage';
 import Profile from './components/Profile';
 
 const INITIAL_PROFILE: AgentProfile = {
@@ -163,7 +164,7 @@ const ROADMAP: RoadmapWeek[] = [
 ];
 
 export default function App() {
-  const [activeView, setActiveView] = useState<'dashboard' | 'roadmap' | 'resources' | 'docs' | 'profile'>('dashboard');
+  const [activeView, setActiveView] = useState<'dashboard' | 'roadmap' | 'resources' | 'studio' | 'docs' | 'profile'>('dashboard');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [agentProfile, setAgentProfile] = useState<AgentProfile>(INITIAL_PROFILE);
   const [milestones, setMilestones] = useState<Milestone[]>(INITIAL_MILESTONES);
@@ -219,7 +220,7 @@ export default function App() {
           </div>
           <span className="font-display text-xl tracking-widest text-gold uppercase">Moonshine Capital</span>
         </button>
-        <div className="hidden md:flex items-center gap-8 text-sm font-medium tracking-wide text-white/65">
+        <div className="hidden md:flex items-center gap-7 text-sm font-medium tracking-wide text-white/65">
           <button 
             type="button"
             onClick={() => setActiveView('dashboard')}
@@ -232,21 +233,28 @@ export default function App() {
             onClick={() => setActiveView('roadmap')}
             className={`hover:text-gold transition-colors whitespace-nowrap shrink-0 ${activeView === 'roadmap' ? 'text-gold' : ''}`}
           >
-            30-Day Roadmap
+            Roadmap
           </button>
           <button 
             type="button"
             onClick={() => setActiveView('resources')}
             className={`hover:text-gold transition-colors whitespace-nowrap shrink-0 ${activeView === 'resources' ? 'text-gold' : ''}`}
           >
-            Resource Center
+            Resources
+          </button>
+          <button 
+            type="button"
+            onClick={() => setActiveView('studio')}
+            className={`hover:text-gold transition-colors whitespace-nowrap shrink-0 ${activeView === 'studio' ? 'text-gold' : ''}`}
+          >
+            AI Studio
           </button>
           <button 
             type="button"
             onClick={() => setActiveView('docs')}
             className={`hover:text-gold transition-colors whitespace-nowrap shrink-0 ${activeView === 'docs' ? 'text-gold' : ''}`}
           >
-            Blueprint Docs
+            Docs
           </button>
         </div>
         <button
@@ -583,6 +591,13 @@ export default function App() {
                 ))}
               </div>
             </motion.div>
+          )}
+
+          {activeView === 'studio' && (
+            <AIStudioPage
+              defaultEmail={agentProfile.email}
+              defaultName={agentProfile.name}
+            />
           )}
 
           {activeView === 'docs' && <BlueprintDocsPage />}

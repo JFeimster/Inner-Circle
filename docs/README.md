@@ -27,6 +27,10 @@ This directory contains the ordered architecture, authentication, integration, w
    - Searching Assets Across Google Drive, Notion, Wix, Canva & Vimeo
    - Federated Admin Asset Picker vs. Unified Master Asset Index
    - Folder & Tag Standardization for Automated Portal Sync
+7. **[07 — AI Studio Packaging, Pricing & Unit Economics](./07-ai-studio-packaging-and-pricing.md)**
+   - Credit Matrix (Chat, File Creator, Brand Image Generation)
+   - Three-Tier Pricing & Top-Up Credit Packs with Margin Analysis
+   - Brokerage Pass-Through & Stripe Webhook Wiring Checklist
 
 ## Related Files
 - [Project README](../README.md)

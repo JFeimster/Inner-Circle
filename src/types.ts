@@ -62,3 +62,35 @@ export interface AgentProfile {
   bio: string;
   avatar: string;
 }
+
+export type CreatedAssetKind = 'file' | 'graphic';
+
+export interface CreatedAsset {
+  id: string;
+  kind: CreatedAssetKind;
+  title: string;
+  filename: string;
+  fileType: string;
+  mimeType: string;
+  summary: string;
+  content: string;
+  aspectRatio?: string;
+  createdAt: string;
+}
+
+export interface ChatAttachment {
+  name: string;
+  mimeType: string;
+  dataBase64: string;
+  previewUrl?: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  assets?: CreatedAsset[];
+  attachmentName?: string;
+  createdAt: string;
+  isError?: boolean;
+}
