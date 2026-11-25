@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowLeft, ArrowRight, CheckCircle2, Loader2, ShieldCheck } from 'lucide-react';
 import { motion } from 'motion/react';
+import editorialAuthLounge from '../assets/images/editorial_auth_lounge_1795589531132.jpg';
 
 export interface AuthenticatedMember {
   email: string;
@@ -17,7 +18,7 @@ interface OAuthLoginPageProps {
 
 type OAuthProvider = 'google' | 'linkedin' | 'microsoft';
 
-const AUTH_LOUNGE_IMAGE = '/src/assets/images/editorial_auth_lounge_1795589531132.jpg';
+const AUTH_LOUNGE_IMAGE = editorialAuthLounge;
 
 const PROVIDER_META: Record<
   OAuthProvider,

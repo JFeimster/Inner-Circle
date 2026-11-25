@@ -1,14 +1,17 @@
 import React, { useState } from 'react';
 import { ArrowRight, CheckCircle2, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
+import heroMoonshinePenthouse from '../assets/images/hero_moonshine_penthouse_1795589530565.jpg';
+import editorialAdvisoryBoardroom from '../assets/images/editorial_advisory_boardroom_1795589530751.jpg';
+import avatarPartnerSarah from '../assets/images/avatar_partner_sarah_1795589533494.jpg';
 
 interface LandingPageProps {
   onOpenLogin: () => void;
 }
 
-const HERO_IMAGE = '/src/assets/images/hero_moonshine_penthouse_1795589530565.jpg';
-const BOARDROOM_IMAGE = '/src/assets/images/editorial_advisory_boardroom_1795589530751.jpg';
-const PARTNER_SARAH_AVATAR = '/src/assets/images/avatar_partner_sarah_1795589533494.jpg';
+const HERO_IMAGE = heroMoonshinePenthouse;
+const BOARDROOM_IMAGE = editorialAdvisoryBoardroom;
+const PARTNER_SARAH_AVATAR = avatarPartnerSarah;
 
 const ROADMAP_PREVIEW = [
   {

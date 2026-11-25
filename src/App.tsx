@@ -29,6 +29,7 @@ import AIStudioPage from './pages/AIStudioPage';
 import LandingPage from './pages/LandingPage';
 import OAuthLoginPage, { AuthenticatedMember } from './pages/OAuthLoginPage';
 import Profile from './components/Profile';
+import agentProfileAvatar from './assets/images/avatar_agent_profile_1795586852526.jpg';
 
 const INITIAL_PROFILE: AgentProfile = {
   name: 'Jason Feimster',
@@ -38,7 +39,7 @@ const INITIAL_PROFILE: AgentProfile = {
   cohort: 'Cohort Q4 2026',
   mentorName: 'David Sterling',
   bio: 'Luxury capital and real estate advisor focused on high-net-worth private placements, off-market acquisitions, and relationship-led deal execution.',
-  avatar: '/src/assets/images/avatar_agent_profile_1795586852526.jpg',
+  avatar: agentProfileAvatar,
 };
 
 // Mock Data
