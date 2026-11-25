@@ -19,6 +19,8 @@ import doc04 from '../../docs/04-automated-onboarding-workflows.md?raw';
 import doc05 from '../../docs/05-site-pages-and-files-blueprint.md?raw';
 import doc06 from '../../docs/06-asset-search-and-discovery.md?raw';
 import doc07 from '../../docs/07-ai-studio-packaging-and-pricing.md?raw';
+import doc08 from '../../docs/08-loan-broker-repositioning-assets-and-master-prompts.md?raw';
+import doc09 from '../../docs/09-feature-backlog-and-component-specs.md?raw';
 import integrationsYaml from '../../config/integrations.yaml?raw';
 
 interface DocEntry {
@@ -105,8 +107,26 @@ const BLUEPRINT_DOCS: DocEntry[] = [
     content: doc07,
   },
   {
-    id: 'config-yaml',
+    id: 'doc-08',
     order: '08',
+    title: 'Loan Broker Copy, Visual Prompts, Master Prompts & Drive OAuth',
+    path: '/docs/08-loan-broker-repositioning-assets-and-master-prompts.md',
+    format: 'md',
+    summary: 'Funding agency repositioning, stock & AI image prompts, multi-tool master prompts & Google Drive OAuth.',
+    content: doc08,
+  },
+  {
+    id: 'doc-09',
+    order: '09',
+    title: 'Feature Backlog & Component Specs',
+    path: '/docs/09-feature-backlog-and-component-specs.md',
+    format: 'md',
+    summary: 'Tracking specs for Network Leaderboard, Notification Center, Start Module Video Modal & Phase 2 features.',
+    content: doc09,
+  },
+  {
+    id: 'config-yaml',
+    order: '10',
     title: 'Integrations Config (YAML)',
     path: '/config/integrations.yaml',
     format: 'yaml',
@@ -163,6 +183,33 @@ function SafeMarkdownContent({ content }: { content: string }) {
     if (trimmed === '---') {
       elements.push(<hr key={i} className="border-white/10 my-6" />);
       i++;
+      continue;
+    }
+
+    if (trimmed.startsWith('```')) {
+      const lang = trimmed.slice(3).trim();
+      const codeLines: string[] = [];
+      i++;
+      while (i < lines.length && !lines[i].trim().startsWith('```')) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+      if (i < lines.length) i++;
+      elements.push(
+        <div
+          key={`code-${i}`}
+          className="my-4 rounded-2xl border border-white/10 bg-black/50 overflow-hidden"
+        >
+          {lang && (
+            <div className="px-4 py-1.5 border-b border-white/10 bg-white/[0.03] text-[10px] uppercase tracking-widest text-gold/80 font-mono">
+              {lang}
+            </div>
+          )}
+          <pre className="p-4 text-xs font-mono text-white/85 leading-relaxed whitespace-pre-wrap overflow-x-auto">
+            {codeLines.join('\n')}
+          </pre>
+        </div>
+      );
       continue;
     }
 

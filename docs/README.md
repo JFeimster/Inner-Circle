@@ -31,6 +31,15 @@ This directory contains the ordered architecture, authentication, integration, w
    - Credit Matrix (Chat, File Creator, Brand Image Generation)
    - Three-Tier Pricing & Top-Up Credit Packs with Margin Analysis
    - Brokerage Pass-Through & Stripe Webhook Wiring Checklist
+8. **[08 — Loan Broker Repositioning, Visual Assets, Master Prompts & Drive OAuth](./08-loan-broker-repositioning-assets-and-master-prompts.md)**
+   - Revising Site Positioning & Copy for Aspiring & Existing Loan Brokers / Funding Affiliates
+   - Stock vs. Generated Visual Asset Plan (with Copy-Paste Image Prompts)
+   - Tool-Specific Master Prompts (AI Studio, ChatGPT, Codex + VS Code, PowerShell, OpenCode)
+   - Wiring Live Google Drive Asset Search via Client-Side Google OAuth
+9. **[09 — Feature Backlog & Component Specifications](./09-feature-backlog-and-component-specs.md)**
+   - Priority Specs: Network Leaderboard, Notification Center & Start Module Video Modal
+   - Phase 2 Loan Broker Backlog (Commission Calculator, Lender Matrix, Deal Desk Intake)
+   - Recommended Sprint Build Sequence
 
 ## Related Files
 - [Project README](../README.md)
